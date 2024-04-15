@@ -1,0 +1,41 @@
+if (argc > 1) {
+        int fd, port, bytes_recieved;
+        port = atoi(argv[1]);
+
+        struct sockaddr_in server;
+        struct sockaddr_in client;
+
+        server.sin_family = AF_INET;
+        server.sin_port = htons(port); 
+        server.sin_addr.s_addr = htonl(INADDR_ANY); 
+        bzero(&(server.sin_zero),8);
+
+        if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+            perror("Error apertura del socket");
+            
+        }
+
+        if (bind(fd, (struct sockaddr*)&server, sizeof(struct sockaddr)) == -1) {
+            perror("Error al bindear");
+            
+        }
+
+        printf("Waiting UDP from port %d\n", port);
+
+        char buffer[1024] = {0};
+        socklen_t client_size = sizeof(client);
+        bytes_recieved = recvfrom(fd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client, &client_size);
+        buffer[bytes_recieved] = '\0';
+
+        unpackdata(buffer);
+        
+        printf("Roger %s\n", buffer);
+        printf("Bytes recividos: %d\n", bytes_recieved);
+
+        /*Send de prueba*/
+        sendto(fd, buffer, strlen(buffer) + 1, 0, (struct sockaddr *)&client, sizeof(struct sockaddr_in));
+        
+        close(fd);
+
+        return 0;
+    }
