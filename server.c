@@ -38,6 +38,8 @@
 #define x 3
 #define v 2
 #define w 3
+#define t 1
+#define s 2
 
 int client_num = 0;
 int threads_num = 0;
@@ -107,7 +109,7 @@ Tcp_packet hextoASCII_tcp(char* hexArray, size_t size);
 void save_client_data(Udp_packet packet, char* ip);
 bool check_mac(Udp_packet packet);
 void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char *controller);
-void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag);
+void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet);
 void send_subs_nack(int sockfd, struct sockaddr_in addr_cli);
 void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *controller, int pointer);
 void send_hello(int sockfd, struct sockaddr_in addr_cli, int pointer);
@@ -127,18 +129,20 @@ void send_set_data(int pointer, char* device, char* value);
 bool check_value_len(char* value, char* device);
 void send_get_data(int pointer, char* device);
 void send_data_rej(int socket, int pointer, char* device, char* value, int flag);
-void send_data_nack(int socket, int pointer);
+void send_data_nack(int socket, int pointer, char* device, char* value, int flag);
 void handle_sigusr1(int sig);
 void handle_sigusr2(int sig);
 void handle_sigint(int sig);
 int pthread_kill(pthread_t thread, int sig);
-void bzero(void *s, size_t n);
-int snprintf(char *s, size_t n, const char *format, ...);
+void bzero(void *s_, size_t n);
+int snprintf(char *s_, size_t n, const char *format, ...);
 char* get_datetime();
 void print_info();
 const char* parse_type();
 
-
+/*-------------------------
+Els 3 handle's serveixen per tancar de forma ordenada els fils i el pare
+-------------------------*/
 void handle_sigusr1(int sig) {
     close(copied_udp);
     pthread_exit(NULL);
@@ -150,12 +154,14 @@ void handle_sigusr2(int sig) {
 }
 
 void handle_sigint(int sig) {
+    close(copied_tcp);
+    close(copied_udp);
+    printf("\033[1m");
+    printf("%s: MSG. => Finalització per ^C\n", get_datetime());
+    printf("\033[0m");
     if (debug) {
         printf("%s: DEBUG => Petició de finalització\n", get_datetime());
     }
-    close(copied_tcp);
-    close(copied_udp);
-    printf("%s: MSG. => Finalització per ^C\n", get_datetime());
     printf("Terminado\n");
     exit(0);
 }
@@ -203,6 +209,9 @@ const char* parse_type(int type) {
     }
 }
 
+/*
+Utilitzat per interpretar els paràmetres de la línia de comandes i inicialitzar el servidor
+*/
 int main(int argc, char *argv[]) {
     if (argc == 2) {
         if (strcmp(argv[1], "-d") == 0) {
@@ -311,6 +320,9 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+/*
+Interpreta l'arxiu de dades de configuració del programari
+*/
 void parse_server_conf(char *config_file) {
     FILE *file;
     char line [100];
@@ -349,6 +361,9 @@ void parse_server_conf(char *config_file) {
     }
 }
 
+/*
+Interpreta l'arxiu de controladors autoritzats
+*/
 void parse_controllers(char *config_file) {
     FILE *file;
     char line [100];
@@ -395,10 +410,14 @@ void remove_spaces(char *str) {
     *dst = '\0';
 }
 
+/*
+Inicialitza el servidor, creant dos fils, un per tractar les connexions TCP (Transmission Control Protocol)
+i l'altre per les connexions UDP (User Datagram Protocol).
+El programa principal es quedarà a l'espera de comandes per la terminal.
+*/
 void init_server() {
     pthread_t thread_id, thread_id2;
     char buffer[1024];
-
     pthread_create(&thread_id, NULL, start_udp, NULL);
     pthread_create(&thread_id2, NULL, start_tcp, NULL);
     if (debug) {
@@ -414,6 +433,9 @@ void init_server() {
     }
 }
 
+/*
+Crea el socket per on es rebran les connexions UDP.
+*/
 int init_udp_socket() {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -435,6 +457,9 @@ int init_udp_socket() {
     return sock;
 }
 
+/*
+Crea el socket per on es rebran les connexions TCP.
+*/
 int init_tcp_socket() {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -455,6 +480,9 @@ int init_tcp_socket() {
     return sock;
 }
 
+/*
+Interpreta la comanda rebuda per la terminal i actua en conseqüència
+*/
 void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
     int i, pointer;
     char command[100];
@@ -472,24 +500,19 @@ void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
         print_info();
     } else if (strcmp(command, "set") == 0) {
         sscanf(buffer, "%s %s %s %s", command, controller, device, value);
-        printf("Controller: %s\nDevice: %s\nValue: %s\n", controller, device, value);
         pointer = check_controller(controller, 0);
         if (pointer >= 0 && check_device(pointer, device) && check_device_mode(device) && check_value_len(value, device)) {
-            printf("ESTAMOS INNNN\n");
             send_set_data(pointer, device, value);
         }
     } else if (strcmp(command, "get") == 0) {
         sscanf(buffer, "%s %s %s %s", command, controller, device, value);
-        printf("Controller: %s\nDevice: %s\n", controller, device);
         pointer = check_controller(controller, 0);
         if (pointer >= 0 && check_device(pointer, device)) {
-            printf("ESTAMOS INNNN___V2\n");
             send_get_data(pointer, device);
         } else {
             printf("Error en la comanda\n");
         }
     } else if (strcmp(command, "quit") == 0) {
-        printf("AAAA\n");
         pthread_kill(thread1, SIGUSR1);
         pthread_kill(thread2, SIGUSR2);
         if (pthread_join(thread1, NULL) != 0) {
@@ -506,6 +529,9 @@ void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
     }
 }
 
+/*
+Mostra per pantalla la informació de tots els controladors autoritzats.
+*/
 void print_info () {
     int j;
     printf("--NOM--- ------IP------- -----MAC---- --RNDM-- ----ESTAT--- --SITUACIÓ-- --ELEMENTS-------------------------------------------\n");
@@ -515,6 +541,10 @@ void print_info () {
         }
 }
 
+/*
+Envia el paquet del tipus GET_DATA.
+També rep i tracta la resposta d'aquest actuant en conseqüència.
+*/
 void send_get_data(int pointer, char* device) {
     int offset, tcp_socket, sock, n, flag;
     char buffer[SIZE];
@@ -550,17 +580,26 @@ void send_get_data(int pointer, char* device) {
     memcpy(buffer + offset, device, 8);
 
     write(sock, buffer, sizeof(buffer));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                    get_datetime(), sizeof(buffer), parse_type(packet.type), packet.mac, packet.rndm, packet.device, packet.value, packet.info);
+    }
+    /*
+    Tractament de la resposta al paquet GET_DATA
+    */
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     n = recv(sock, buffer, sizeof(buffer), 0);
     if (n == -1) {
-        disconnect_client(pointer);
+        pthread_exit(NULL);
     } else {        
         packet = hextoASCII_tcp(buffer, n);
-
+        if (debug) {
+            printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.device, packet.value, packet.info);
+        }
         if (packet.type != DATA_ACK) {
             disconnect_client(pointer);
         }
-
         flag = check_credentials(pointer, "SEND_HELLO", packet.mac, packet.rndm);
         device_ok = check_device(pointer, packet.device);
         if (flag == 0 && device_ok) {
@@ -572,18 +611,27 @@ void send_get_data(int pointer, char* device) {
             snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
             sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
             fprintf(file, "%s", text);
+            if (debug) {
+                printf("%s: DEBUG => Dades del controlador: %s [%s], element: %s emmagatzemades correctament\n",
+                        get_datetime(), clients[pointer].name, clients[pointer].mac, device);
+            }
             fclose(file);
         } else {
             if (!device_ok) {
-                flag = 0;
+                send_data_nack(sock, pointer,packet.device, packet.value, 1);
+            } else {
+                send_data_rej(sock, pointer, packet.device, packet.value, flag);
+                disconnect_client(pointer);
             }
-            send_data_rej(sock, pointer, packet.device, packet.value, flag);
-            disconnect_client(pointer);
         }
     }
     close(sock);
 }
 
+/*
+Envia el paquet del tipus SET_DATA.
+També rep i tracta la resposta d'aquest actuant en conseqüència.
+*/
 void send_set_data(int pointer, char* device, char* value) {
     int offset, tcp_socket, sock, n, flag;
     char buffer[SIZE];
@@ -619,15 +667,26 @@ void send_set_data(int pointer, char* device, char* value) {
     memcpy(buffer + offset, device, 8);
     offset += 8;
     memcpy(buffer + offset, value, 7);
+    offset += 7;
 
     write(sock, buffer, sizeof(buffer));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=\n",
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, device, value);
+    }
+    /*
+    Tractament de la resposta a SET_DATA
+    */
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     n = recv(sock, buffer, sizeof(buffer), 0);
     if (n == -1) {
-        disconnect_client(pointer);
+        pthread_exit(NULL);
     } else {        
         packet = hextoASCII_tcp(buffer, n);
-
+        if (debug) {
+            printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.device, packet.value, packet.info);
+        }
         if (packet.type != DATA_ACK) {
             disconnect_client(pointer);
         }
@@ -643,26 +702,37 @@ void send_set_data(int pointer, char* device, char* value) {
             snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
             sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
             fprintf(file, "%s", text);
+            if (debug) {
+                printf("%s: DEBUG => Dades del controlador: %s [%s], element: %s emmagatzemades correctament\n",
+                        get_datetime(), clients[pointer].name, clients[pointer].mac, device);
+            }
             fclose(file);
         } else {
             if (!device_ok) {
-                flag = 0;
+                send_data_nack(sock, pointer,packet.device, packet.value, 1);
+            } else {
+                send_data_rej(sock, pointer, packet.device, packet.value, flag);
+                disconnect_client(pointer);
             }
-            send_data_rej(sock, pointer, packet.device, packet.value, flag);
-            disconnect_client(pointer);
         }
     }
     close(sock);
 }
 
+/*
+Comprova que en la comanda set, l'apartat valor no superi 6 caràcters
+*/
 bool check_value_len(char* value, char* device) {
     if (strlen(value) <= 6) {
         return true;
     }
-    printf("El valor de %s no pot superar els 6 caracters\n", device);
+    printf("%s: MSG. => El valor de %s no pot superar els 6 caràcters\n", get_datetime(),device);
     return false;
 }   
 
+/*
+Comprova que la comanda set es faci sobre un dispositiu d'entrada
+*/
 bool check_device_mode(char* device) {
     int len;
     char last_char;
@@ -674,26 +744,33 @@ bool check_device_mode(char* device) {
     printf("L'element anomenat: %s és un sensor i no permet establir el seu valor\n", device);
     return false;
 }
-
+ 
+ /*
+ Retorna un punter a l'array de controladors (clients) en el cas que estigui
+ en l'estat SEND_HELLO, si no es troba o no està subscrit es retornarà -1.
+ */
 int check_controller(char* controller, int flag) {
     int i;
-
     for (i = 0; i < client_num; ++i) {
         if (strcmp(clients[i].name, controller) == 0) {
             if (strcmp(clients[i].state, "SEND_HELLO") == 0) {
                 return i;
             } else if (flag == 0) {
-                printf("El cliente %s no esta suscrito :0\n", controller);
+                printf("El client %s no està subscrit \n", controller);
                 return -1;
             } else if (flag == 1) {
                 return i;
             }
         }
     }
-    printf("El controlador %s no se encuentra en la base de datos\n", controller);
+    printf("%s: ALERT => El controlador %s no es troba en la bano es troba en la se de dades\n",get_datetime(), controller);
     return -1;
 }
 
+/*
+Tracta els paquets SUBS_REQ que arriben pel port UDP
+i actua en conseqüència.
+*/
 void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     char ip[1024];
     Udp_packet packet;
@@ -704,12 +781,13 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
 
     packet = hextoASCII_udp(buffer, n);
     if (debug) {
-        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n", 
-                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.info);
+        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s,%s\n", 
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.controller, packet.situation);
     }
     mac_ok = check_mac(packet);
     rndm_ok = (strcmp(packet.rndm, "00000000") == 0);
     if (packet.type == SUBS_REQ) {
+
         if (mac_ok && rndm_ok) {
             save_client_data(packet, ip);
             send_subs_ack(sockfd, cliaddr, packet.controller);
@@ -721,7 +799,7 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
             } else if(!rndm_ok) {
                 flag = 2;
             }
-            send_subs_rej(sockfd, cliaddr, flag);
+            send_subs_rej(sockfd, cliaddr, flag, packet);
             /*No fa falta desconnectar doncs ja ho està en aquest estat*/
         }
     } else {
@@ -729,6 +807,9 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     }
 }
 
+/*
+Envia el paquet SUBS_NACK al port udp especificat (sockfd)
+*/
 void send_subs_nack(int sockfd, struct sockaddr_in addr_cli) {
     char buffer[SIZE];
     unsigned char type = SUBS_NACK;
@@ -743,20 +824,27 @@ void send_subs_nack(int sockfd, struct sockaddr_in addr_cli) {
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
 }
 
-void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag) {
+/*
+Envia el paquet SUBS_REJ al port udp especificat (sockfd)
+*/
+void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet) {
     char buffer[SIZE];
     char *text;
     unsigned char type = SUBS_REJ;
     int offset = 0;
 
     if (flag == 0) {
-        text = "Nom incorrecte :(";
+        printf("%s: INFO  => Rebutjat paquet SUBS_REQ. Controlador: %s [%s] (error identificació)\n", get_datetime(), packet.controller, packet.mac);
+        text = "Nom incorrecte";
     } else if (flag == 1) {
-        text = "MAC incorrecta :(";
+        printf("%s: INFO => Petició de subscripció errònia. Controlador: mac=%s no autoritzat\n", get_datetime(), packet.mac);
+        text = "MAC incorrecta";
     } else if(flag == 2) {
-        text = "Random number incorrecte :(";
+        printf("%s: INFO => Petició de subscripció errònia. Controlador: mac=%s rndm=%s (rndm incorrecte)\n", get_datetime(), packet.mac, packet.rndm);
+        text = "Random number incorrecte";
     } else if (flag == 3) {
-        text = "El camp data estava buit :(";
+        printf("%s: INFO  => Rebutjat paquet SUBS_REQ. Controlador: %s [%s] (error identificació)\n", get_datetime(), packet.controller, packet.mac);
+        text = "El camp data estava buit";
     }
 
     memcpy(buffer + offset, &type, 1);
@@ -768,8 +856,16 @@ void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag) {
     memcpy(buffer + offset, text, 80);
 
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
-}
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, tipus=%s, mac=%s, rndm=00000000, dades=%s\n",
+            get_datetime(), sizeof(buffer), parse_type(type), serv.mac, text);
+    }
+}   
 
+/*
+Descodifica els buffers utilitzats alhora de rebre informació per un socket UDP
+i guarda les dades del paquet en una estructura del tipus Udp_packet.
+*/
 Udp_packet hextoASCII_udp(char* hexArray, size_t size) {
     Udp_packet packet;
     char mac[SIZE];
@@ -814,23 +910,27 @@ Udp_packet hextoASCII_udp(char* hexArray, size_t size) {
     return packet;
 }
 
+/*
+Tracta el camp 'dades' dels paquets SUBS_INFO, separant el port TCP 
+de la llista de dispositius.
+*/
 void parse_data(char* info, char* mac) {
     int pointer;
     char *token;
-
     for (pointer = 0; pointer < client_num; pointer++) {
         if (strcmp(clients[pointer].mac, mac) == 0) {
             break;
         }
     }
-
     token = strtok(info, ",");
     clients[pointer].tcp_port = strdup(token);
-
     token = strtok(NULL, ",");
     clients[pointer].elements = strdup(token);
 }
 
+/*
+Guarda la IP i la situació del controlador rebudes en el paquet SUBS_REQ.
+*/
 void save_client_data(Udp_packet packet, char* ip) {
     int i;
     for (i = 0; i < client_num; i++) {
@@ -841,6 +941,9 @@ void save_client_data(Udp_packet packet, char* ip) {
     }
 }
 
+/*
+Comprova si la mac pertany a un controlador autoritzat.
+*/
 bool check_mac(Udp_packet packet) {
     int i;
     for (i = 0; i < client_num; i++) {
@@ -853,6 +956,9 @@ bool check_mac(Udp_packet packet) {
     return false;
 }
 
+/*
+Envia el paquet SUBS_ACK i tracta la resposta per part del controlador a aquest.
+*/
 void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_name) {
     char buffer[SIZE];
     unsigned char type = SUBS_ACK;
@@ -864,8 +970,10 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     struct sockaddr_in addr_server;
     socklen_t len;
     bool mac_ok, rndm_ok;
+    struct timeval timeout;
+    timeout.tv_sec = s * t;
+    timeout.tv_usec = 0;
 
-    strcpy(controller, controller_name);
     srand(time(NULL));
     random_number = rand() % 90000000 + 10000000;
     sprintf(rndm, "%d", random_number);
@@ -885,9 +993,25 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
     if (debug) {
-        printf("%s: DEBUG => Enviat: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
-                get_datetime(), offset, parse_type(type), serv.mac, rndm, port);
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, rndm, port);
+
     }
+    strcpy(controller, controller_name);
+    for (i = 0; i < client_num; i++) {
+        if (strcmp(clients[i].name, controller) == 0) {
+            clients[i].state = "WAIT_INFO";
+            printf("\033[1m");
+            printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
+                        , get_datetime(), clients[i].name, clients[i].state);
+            printf("\033[0m");
+            break;
+        }
+    }
+    /*
+    Obertura del nou port UDP per continuar el procés de subscripció
+    i tractament de la resposta a SUBS_ACK.
+    */
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     len = sizeof(addr_cli);
 	memset(&addr_server,0, sizeof(struct sockaddr_in));
@@ -897,46 +1021,46 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
 	addr_server.sin_port=htons(random_port);
     
     bind(sock,(struct sockaddr *)&addr_server,sizeof(struct sockaddr_in));
-
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     n = recvfrom(sock, (char *)buffer, 1024,  
                 0, ( struct sockaddr *) &addr_cli, 
                 &len); 
-    
-    packet = hextoASCII_udp(buffer, sizeof(buffer));
-    if (debug) {
-        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
-                get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.info);
-    }
-    rndm_ok = (strcmp(packet.rndm, rndm) == 0);
-    if (n > 0 && rndm_ok) {
-        for (i = 0; i < client_num; i++) {
-            if (strcmp(clients[i].name, controller) == 0) {
-                clients[i].rndm = strdup(rndm);
-                clients[i].state = "WAIT_INFO";
-                printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
-                        , get_datetime(), clients[i].name, clients[i].state);
-                break;
-            }
-        }
-    } 
-    mac_ok = (strcmp(clients[i].mac, packet.mac) == 0);
-
-    if (strlen(packet.info) != 0 && rndm_ok && mac_ok) {
-        send_info_ack(sock, sockfd, addr_cli, controller, i);
+    if (n == -1) {
+        printf("%s: WARN. => Finalització del procés de subscripció en no rebre el paquet SUBS_INFO\n", get_datetime());
+        disconnect_client(i);
+        printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n", get_datetime());
     } else {
-        if (packet.controller != NULL && check_controller(packet.controller, 1) == -1) {
-            flag = 0;
-        } else if (!rndm_ok) {
-            flag = 2;
-        } else if(!mac_ok) {
-            flag = 1;
-        } else if (strlen(packet.info) == 0) {
-            flag = 3;
+        packet = hextoASCII_udp(buffer, sizeof(buffer));
+        if (debug) {
+            printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.info);
         }
-        send_subs_rej(sockfd, addr_cli, flag);
+        rndm_ok = (strcmp(packet.rndm, rndm) == 0);
+        mac_ok = (strcmp(clients[i].mac, packet.mac) == 0);
+
+        if (strlen(packet.info) != 0 && rndm_ok && mac_ok) {
+            clients[i].rndm = strdup(rndm);
+            send_info_ack(sock, sockfd, addr_cli, controller, i);
+        } else {
+            if (packet.controller != NULL && check_controller(packet.controller, 1) == -1) {
+                flag = 0;
+            } else if (!rndm_ok) {
+                flag = 2;
+            } else if(!mac_ok) {
+                flag = 1;
+            } else if (strlen(packet.info) == 0) {
+                flag = 3;
+            }
+            send_subs_rej(sockfd, addr_cli, flag, packet);
+        }
     }
 }
 
+/*
+Envia el paquet INFO_ACK, acabant amb el procés de subscripció,
+i alhora serveix de Time Out per comprovar si el primer HELLO
+per part del controlador arriba.
+*/
 void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *controller, int pointer) {
     char buffer[1024];
     int offset = 0, prev_check;
@@ -952,18 +1076,33 @@ void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *con
     offset += 80;
 
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, serv.tcp);
+    }
 
     clients[pointer].state = "SUBSCRIBED";
+    printf("\033[1m");
     printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
                         , get_datetime(), clients[pointer].name, clients[pointer].state);
-    /*per veure si el primer hello es enviat*/
+    printf("\033[0m");
+    if (debug) {
+        printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n",get_datetime());
+        printf("%s: DEBUG => Establert timeout pel primer paquet HELLO\n", get_datetime());
+    }
+    /*Tractament per veure si el primer hello es enviat*/
     prev_check = clients[pointer].check_pack;
     sleep(v * 2);
     if (prev_check == clients[pointer].check_pack) {
+        printf("%s: MSG. => Controlador: %s [%s] no ha rebut el primer HELLO en %d segons\n",
+            get_datetime(), clients[pointer].name, clients[pointer].mac, v*2);
         disconnect_client(pointer);
     }
 }
 
+/*
+Envia el paquet HELLO per mantenir la comunicació amb el controlador
+*/
 void send_hello(int sockfd, struct sockaddr_in addr_cli, int pointer) {
     char buffer[1024];
     char data[1024];
@@ -982,8 +1121,16 @@ void send_hello(int sockfd, struct sockaddr_in addr_cli, int pointer) {
     offset += 80;
 
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, data);
+    }
 }
 
+/*
+Funció que escolta constantment pel port UDP a l'espera de paquets.
+En rebre un crea un fil per tractar-lo.
+*/
 void *start_udp() {
     pthread_t thread_id;
     int udp_sock, n;
@@ -991,7 +1138,6 @@ void *start_udp() {
     struct sockaddr_in cliaddr;
     socklen_t len;
     ThreadArgs *args = malloc(sizeof *args);
-    Udp_packet packet;
 
     udp_sock = init_udp_socket();
     args->udp_port = udp_sock;
@@ -1013,6 +1159,9 @@ void *start_udp() {
     }
 }
 
+/*
+Tracta el paquet UDP rebut, comprovant si es tracta d'un HELLO o d'una nova connexió.
+*/
 void* treat_udp(void* args) {
     int pointer, prev_check;
     Udp_packet packet;
@@ -1027,6 +1176,8 @@ void* treat_udp(void* args) {
     if (buffer[0] == HELLO) {
         packet = hextoASCII_udp(buffer, sizeof(buffer));
         if (debug) {
+            printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s,%s\n", 
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.controller, packet.situation);
             printf("%s: DEBUG => Rebut paquet HELLO del controlador: %s [%s]\n", 
                     get_datetime(), packet.controller, packet.mac);
         }
@@ -1034,8 +1185,10 @@ void* treat_udp(void* args) {
             if (strcmp(clients[pointer].name, packet.controller) == 0) {
                 if (strcmp(clients[pointer].state, "SUBSCRIBED") == 0) {
                     clients[pointer].state = "SEND_HELLO";
+                    printf("\033[1m");
                     printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
                         , get_datetime(), clients[pointer].name, clients[pointer].state);
+                    printf("\033[0m");
                 }
                 break;
             }
@@ -1046,12 +1199,18 @@ void* treat_udp(void* args) {
             clients[pointer].check_pack++;
             prev_check = clients[pointer].check_pack;
             sleep(v * x);
-            if (clients[pointer].check_pack == prev_check) {
-                printf("COUNTER CHECKER ---> Client: %s: %d VS %d\n",clients[pointer].name ,prev_check, clients[pointer].check_pack);
+            if (clients[pointer].check_pack == prev_check && strcmp(clients[pointer].state, "DISCONNECT") != 0) {
+                printf("%s: MSG. => Controlador %s [%s] no ha rebut 3 HELLO consecutius\n",
+                    get_datetime(), clients[pointer].name, clients[pointer].mac);
                 disconnect_client(pointer);
             }
         } else {
+            if (debug) {
+                printf("%s: Rebut paquet: HELLO del controlador [%s] amb dades d'identificació incorrectes\n",
+                    get_datetime(), clients[pointer].mac);
+            }
             send_hello_rej(udp_sock, cliaddr, pointer);
+            disconnect_client(pointer);
         }
     } else {
         recieve_info(udp_sock,buffer, n, cliaddr);
@@ -1059,6 +1218,9 @@ void* treat_udp(void* args) {
     return NULL;
 }
 
+/*
+Envia el paquet HELLO_REJ pel port UDP especificat (sockfd)
+*/
 void send_hello_rej(int sockfd, struct sockaddr_in addr_cli, int pointer) {
     char buffer[1024];
     char data[1024];
@@ -1076,9 +1238,19 @@ void send_hello_rej(int sockfd, struct sockaddr_in addr_cli, int pointer) {
     offset += 80;
 
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, data);
+    }
 }
 
+/*
+Desconnecta el controlador associat al punter.
+*/
 void disconnect_client(int pointer) {
+    printf("\033[1m");
+    printf("%s: MSG.  => Controlador: %s, passa a l'estat: DISCONNECTED\n",get_datetime() ,clients[pointer].name);
+    printf("\033[0m");
     clients[pointer].state = "DISCONNECTED";
     clients[pointer].check_pack = 0;
     clients[pointer].elements = "";
@@ -1087,6 +1259,10 @@ void disconnect_client(int pointer) {
     clients[pointer].situation = "";
 }
 
+/*
+Funció que escolta constantment pel port TCP a l'espera de paquets.
+En rebre un crea un fil per tractar-lo.
+*/
 void *start_tcp() {
     pthread_t thread_id;
     int tcp_sock, n, newsock;
@@ -1108,18 +1284,24 @@ void *start_tcp() {
         newsock = accept(tcp_sock,(struct sockaddr*)&cliaddr,&len);
         if (newsock > 0) {
             n = read(newsock,buffer,SIZE);
-            printf("Leido: %d\n", n);
             if (n > 0) {
                 args->buffer = buffer;
                 args->udp_port = newsock;
                 args->n = n;
                 hextoASCII_udp(buffer, n);
+                if (debug) {
+                    printf("%s: DEBUG => Rebuda connexió TCP, creat procés per atendre'l\n", get_datetime());
+                }
                 pthread_create(&thread_id, NULL, treat_tcp, (void*)args);
             }
         }
     }
 }
 
+/*
+Tracta el paquet rebut pel port TCP comprovant si és correcte i es tracta
+d'un paquet del tipus SEND_DATA.
+*/
 void* treat_tcp(void* args) {
     Tcp_packet packet;
     int pointer, flag;
@@ -1131,9 +1313,13 @@ void* treat_tcp(void* args) {
     int socket = threadArgs->udp_port;
     int n = threadArgs->n;
     char* buffer = threadArgs->buffer;
-
+    bool device_ok;
 
     packet = hextoASCII_tcp(buffer, n);
+    if (debug) {
+        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.device, packet.value, packet.info);
+    }
 
     if (packet.type == SEND_DATA) {
         for (pointer = 0; pointer < client_num; pointer++) {
@@ -1142,12 +1328,13 @@ void* treat_tcp(void* args) {
             }
         }
         flag = check_credentials(pointer,"SEND_HELLO", packet.mac, packet.rndm);
-        if (pointer < client_num && flag == 0 && check_device(pointer, packet.device)) {
+        device_ok = check_device(pointer, packet.device);
+        if (pointer < client_num && flag == 0 && device_ok) {
             sprintf(file_name, "%s-%s", clients[pointer].name, clients[pointer].situation);
             file = fopen(file_name, "a");
 
             if (file == NULL) {
-                send_data_nack(socket, pointer);
+                send_data_nack(socket, pointer, packet.device, packet.value, 0);
             }
             time(&rawtime);
             timeinfo = localtime(&rawtime);
@@ -1155,8 +1342,11 @@ void* treat_tcp(void* args) {
             snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
 
             sprintf(text, "%s,%s;SEND_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
-
             fprintf(file, "%s", text);
+            if (debug) {
+                printf("%s: DEBUG => Dades del controlador: %s [%s], element: %s emmagatzemades correctament\n",
+                        get_datetime(), clients[pointer].name, clients[pointer].mac, packet.device);
+            }
             fclose(file);
 
             send_data_ack(socket, pointer, packet.device, packet.value);
@@ -1165,12 +1355,22 @@ void* treat_tcp(void* args) {
             if (pointer < client_num) {
                 flag = 4;
             }
-            send_data_rej(socket, pointer ,packet.device, packet.value, flag);
+            if (!device_ok) {
+                send_data_nack(socket, pointer, packet.device, packet.value, 1);
+            } else {
+                send_data_rej(socket, pointer ,packet.device, packet.value, flag);
+            }
         }
+    }
+    if (debug) {
+        printf("%s: DEBUG => Finalitzat el procés que atenia a un client TCP\n", get_datetime());
     }
     return NULL;
 }
 
+/*
+Envia el paquet del tipus DATA_REJ especificant el motiu del rebuig.
+*/
 void send_data_rej(int socket, int pointer, char* device, char* value, int flag) {
     char buffer[SIZE];
     char *text;
@@ -1178,13 +1378,23 @@ void send_data_rej(int socket, int pointer, char* device, char* value, int flag)
     unsigned char type = DATA_REJ;
 
     if (flag == 1) {
-        text = "MAC incorrecta :(";
+        if (debug) {
+            printf("%s: DEBUG  => Error en les dades d'identificació. Controlador: %s [%s] (error mac)\n", 
+                get_datetime(), clients[pointer].name, clients[pointer].mac);
+        }
+        text = "MAC incorrecta";
     } else if(flag == 2) {
-        text = "Random number incorrecte :(";
+        if (debug) {
+            printf("%s: DEBUG  => Rebutjat paquet SEND_DATA. Controlador: %s [%s] (error random number)\n", 
+                get_datetime(), clients[pointer].name, clients[pointer].mac);
+        }
+        text = "Random number incorrecte";
     } else if (flag == 3) {
-        text = "El client està en un estat incorrecte :(";
-    } else {
-        text = "Nom de l'element incorrecte :(";
+        if (debug) {
+            printf("%s: DEBUG  => Rebutjat paquet SEND_DATA. Controlador: %s [%s] (error controler state)\n", 
+                get_datetime(), clients[pointer].name, clients[pointer].mac);
+        }
+        text = "El client està en un estat incorrecte";
     }
 
     memcpy(buffer + offset, &type, 1);
@@ -1200,22 +1410,53 @@ void send_data_rej(int socket, int pointer, char* device, char* value, int flag)
     memcpy(buffer + offset, text, 80);
 
     write(socket, buffer, sizeof(buffer));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, device, value, text);
+    }
 }
 
-void send_data_nack(int socket, int pointer) {
+/*
+Envia el paquet del tipus DATA_NACK
+*/
+void send_data_nack(int socket, int pointer, char* device, char* value, int flag) {
     char buffer[SIZE];
     int offset = 0;
     unsigned char type = DATA_NACK;
+    char* info = "No s'ha pogut guardar les dades";
 
+    if (flag == 1) {
+        info = "Element no pertany al controlador";
+        if (debug) {
+            printf("%s: DEBUG  => Rebut paquet incorrecte. Controlador: %s [%s] (element incorrecte)\n", 
+                get_datetime(), clients[pointer].name, clients[pointer].mac);
+        }
+    }
+    
     memcpy(buffer + offset, &type, 1);
     offset += 1;
     memcpy(buffer + offset, serv.mac, 13);
     offset += 13;
     memcpy(buffer + offset, clients[pointer].rndm, 9);
+    offset += 9;
+    memcpy(buffer + offset, device, 8);
+    offset += 8;
+    memcpy(buffer + offset, value, 7);
+    offset += 7;
+    memcpy(buffer + offset, info, 80);
 
     write(socket, buffer, sizeof(buffer));
+
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, device, value, info);
+    }
 }
 
+/*
+Descodifica els buffers utilitzats alhora de rebre informació per un socket TCP
+i guarda les dades del paquet en una estructura del tipus Tcp_packet.
+*/
 Tcp_packet hextoASCII_tcp(char* hexArray, size_t size) {
     Tcp_packet packet;
     char mac[SIZE];
@@ -1226,45 +1467,37 @@ Tcp_packet hextoASCII_tcp(char* hexArray, size_t size) {
     size_t i;
 
     packet.type = hexArray[0];
-
     for (i = 0; i < 13; ++i) {
         sprintf(mac + i, "%c", hexArray[i + 1]);
     }
-
     packet.mac = strdup(mac);
-    printf("Mac: %s\n", packet.mac);
 
     for (i = 0; i < 9; ++i) {
         sprintf(rndm + i, "%c", hexArray[i + 14]);
     }
-
-    packet.rndm = rndm;
-    printf("Rndm: %s\n", packet.rndm);
+    packet.rndm = strdup(rndm);
 
     for (i = 0; i < 8; ++i) {
         sprintf(device + i, "%c", hexArray[i + 23]);
     }
-
-    packet.device = device;
-    printf("Device: %s\n", packet.device);
+    packet.device = strdup(device);
 
     for (i = 0; i < 7; ++i) {
         sprintf(value + i, "%c", hexArray[i + 31]);
     }
-
-    packet.value = value;
-    printf("Value: %s\n", packet.value);
+    packet.value = strdup(value);
 
     for (i = 0; i < size; ++i) {
         sprintf(info + i, "%c", hexArray[i + 38]);
     }
-
-    packet.info = info;
-    printf("Info: %s\n", packet.info);
-
+    packet.info = strdup(info);
     return packet;
 }
 
+/*
+Comprova que el dispositiu estigui a la llista de dispositius
+del controlador associat al punter.
+*/
 bool check_device(int pointer, char* device) {
     const char delimiters[] = ";";
     char *token;
@@ -1282,8 +1515,12 @@ bool check_device(int pointer, char* device) {
     return false;
 }
 
+/*
+Envia el paquet del tipus DATA_ACK
+*/
 void send_data_ack(int socket, int pointer, char* device, char* value) {
     char buffer[SIZE];
+    char* info = "Dades emmagatzemades";
     int offset = 0;
     unsigned char type = DATA_ACK;
 
@@ -1296,10 +1533,21 @@ void send_data_ack(int socket, int pointer, char* device, char* value) {
     memcpy(buffer + offset, device, 8);
     offset += 8;
     memcpy(buffer + offset, value, 7);
+    offset += 7;
+    memcpy(buffer + offset, info, 80);
+    offset += 80;
 
     write(socket, buffer, sizeof(buffer));
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%ld, comanda=%s, mac=%s, rndm=%s, element: %s, valor: %s, info=%s\n", 
+                get_datetime(), sizeof(buffer), parse_type(type), serv.mac, clients[pointer].rndm, device, value, info);
+    }
 }
 
+/*
+Comprova que l'estat, el número aleatori i la mac del controlador associat siguin
+iguals a les passades per paràmetres.
+*/
 int check_credentials (int pointer, char* state, char* mac, char* rndm) {
     bool state_ok, rndm_ok, mac_ok;
     state_ok = (strcmp(clients[pointer].state, state) == 0);
