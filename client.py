@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import select
 import socket
 import struct
@@ -392,6 +394,8 @@ def subs_ack_treatment(buffer):
         packet = struct.pack('1B13s9s80s', SUBS_INFO, client_config['MAC'].encode(), random_num,
                              data.encode())
         sock_udp.sendto(packet, (client_config['Server'], int(new_port.decode().strip('\x00'))))
+        if debug:
+            debug_package(packet, 0)
         return WAIT_ACK_INFO
     elif type_package == SUBS_NACK:
         tries = -1
@@ -495,9 +499,12 @@ def subscribe_process():
             print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: WAIT_ACK_SUBS")
 
         elif next_state == WAIT_ACK_SUBS:
-            if tries == o:
+            if tries > o:
+                if debug:
+                    print(f"{time.strftime('%H:%M:%S')}: DEBUG => Tancat socket UDP per la comunicació amb el servidor")
                 print(
-                    f"{time.strftime('%H:%M:%S')}: MSG.  => Superat el nombre de processos de subscripció ( {tries} )")
+                    f"{time.strftime('%H:%M:%S')}: MSG.  => Superat el nombre de processos de subscripció ( {tries - 1} )")
+
                 sock_udp.close()
                 exit(0)
             next_state = wait_ack_subs_state()
@@ -529,12 +536,13 @@ def subscribe_process():
             if debug:
                 debug_package(hello_pdu, 0)
             sock_udp.settimeout(r * v)
+            if debug:
+                print(f"{time.strftime('%H:%M:%S')}: DEBUG => Establert temporitzador per enviament HELLO")
             try:
                 buffer, check_serv = sock_udp.recvfrom(1500)
                 if debug:
-                    debug_package(hello_pdu, 1)
-                next_state = check_server_data(buffer, check_serv)
-                if check_serv[0] != server_data['IP']:
+                    debug_package(buffer, 1)
+                if not check_server_data(buffer, check_serv) or check_serv[0] != server_data['IP'] or get_command_name(buffer[0]) == "HELLO_REJ":
                     next_state = NOT_SUBSCRIBED
             except socket.timeout:
                 next_state = NOT_SUBSCRIBED

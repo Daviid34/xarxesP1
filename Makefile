@@ -1,3 +1,3 @@
 all:
-	gcc server.c -Wall -ansi -pedantic -std=c90 -o server
+	gcc server.c -Wall -ansi -pedantic -std=c99 -o server
 

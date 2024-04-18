@@ -12,8 +12,8 @@
 #include <pthread.h>
 #include <sys/select.h>
 #include <ctype.h>
-#include <poll.h>
 #include <arpa/inet.h>
+#include <errno.h>
 
 #define HASH_SIZE 20
 #define MAX_CLIENTS 10
@@ -37,6 +37,7 @@
 
 #define x 3
 #define v 2
+#define w 3
 
 int client_num = 0;
 int threads_num = 0;
@@ -133,6 +134,10 @@ void handle_sigint(int sig);
 int pthread_kill(pthread_t thread, int sig);
 void bzero(void *s, size_t n);
 int snprintf(char *s, size_t n, const char *format, ...);
+char* get_datetime();
+void print_info();
+const char* parse_type();
+
 
 void handle_sigusr1(int sig) {
     close(copied_udp);
@@ -145,8 +150,13 @@ void handle_sigusr2(int sig) {
 }
 
 void handle_sigint(int sig) {
+    if (debug) {
+        printf("%s: DEBUG => Petició de finalització\n", get_datetime());
+    }
     close(copied_tcp);
     close(copied_udp);
+    printf("%s: MSG. => Finalització per ^C\n", get_datetime());
+    printf("Terminado\n");
     exit(0);
 }
 
@@ -159,8 +169,49 @@ char* strdup(const char* str) {
     return dup;
 }
 
+char* get_datetime() {
+    time_t current_time;
+    struct tm *timeinfo;
+    char datetime_buffer[100];
+
+    time(&current_time);
+    timeinfo = localtime(&current_time);
+
+    sprintf(datetime_buffer, "%02d:%02d:%02d",
+            timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+
+    return strdup(datetime_buffer);
+}
+
+const char* parse_type(int type) {
+    switch (type) {
+        case SUBS_REQ: return "SUBS_REQ";
+        case SUBS_ACK: return "SUBS_ACK";
+        case SUBS_REJ: return "SUBS_REJ";
+        case SUBS_INFO: return "SUBS_INFO";
+        case INFO_ACK: return "INFO_ACK";
+        case SUBS_NACK: return "SUBS_NACK";
+        case HELLO: return "HELLO";
+        case HELLO_REJ: return "HELLO_REJ";
+        case SEND_DATA: return "SEND_DATA";
+        case SET_DATA: return "SET_DATA";
+        case GET_DATA: return "GET_DATA";
+        case DATA_ACK: return "DATA_ACK";
+        case DATA_NACK: return "DATA_NACK";
+        case DATA_REJ: return "DATA_REJ";
+        default: return "Unknown";
+    }
+}
+
 int main(int argc, char *argv[]) {
-    if (argc == 3) {
+    if (argc == 2) {
+        if (strcmp(argv[1], "-d") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
+            parse_server_conf("server.cfg");
+            parse_controllers("controllers.dat");
+        }
+    } else if (argc == 3) {
         if (strcmp(argv[1], "-c") == 0) {
             parse_server_conf(argv[2]);
             parse_controllers("controllers.dat");
@@ -168,11 +219,6 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[1], "-u") == 0) {
             parse_server_conf("server.cfg");
             parse_controllers(argv[2]);
-        }
-        else if (strcmp(argv[1], "-d") == 0) {
-            debug = true;
-            parse_server_conf("server.cfg");
-            parse_controllers("controllers.dat");
         }
         else {
             parse_server_conf("server.cfg");
@@ -182,24 +228,28 @@ int main(int argc, char *argv[]) {
 
     else if (argc == 4) {
         if (strcmp(argv[1], "-c") == 0 && strcmp(argv[3], "-d") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[2]);
             parse_controllers("controllers.dat");
-            debug = true;
         }
         else if (strcmp(argv[1], "-d") == 0 && strcmp(argv[2], "-c") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[3]);
             parse_controllers("controllers.dat");
-            debug = true;
         }
         else if (strcmp(argv[1], "-u") == 0 && strcmp(argv[3], "-d") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf("server.cfg");
             parse_controllers(argv[2]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-d") == 0 && strcmp(argv[2], "-u") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf("server.cfg");
             parse_controllers(argv[3]);
-            debug = true;
         }
     }
 
@@ -216,34 +266,40 @@ int main(int argc, char *argv[]) {
 
     else if (argc == 6) {
         if (strcmp(argv[1], "-c") == 0 && strcmp(argv[3], "-u") == 0 && strcmp(argv[5], "-d") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[2]);
             parse_controllers(argv[4]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-u") == 0 && strcmp(argv[3], "-c") == 0 && strcmp(argv[5], "-d") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[4]);
             parse_controllers(argv[2]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-u") == 0 && strcmp(argv[3], "-d") == 0 && strcmp(argv[4], "-c") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[5]);
             parse_controllers(argv[2]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-c") == 0 && strcmp(argv[3], "-d") == 0 && strcmp(argv[4], "-u") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[2]);
             parse_controllers(argv[5]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-d") == 0 && strcmp(argv[2], "-u") == 0 && strcmp(argv[4], "-c") == 0) {
+            debug = true;
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf(argv[5]);
             parse_controllers(argv[3]);
-            debug = true;
         }
         else if (strcmp(argv[1], "-d") == 0 && strcmp(argv[2], "-c") == 0 && strcmp(argv[4], "-u") == 0) {
+            printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
+            debug = true;
             parse_server_conf(argv[3]);
             parse_controllers(argv[5]);
-            debug = true;
         }
     }
 
@@ -258,7 +314,6 @@ int main(int argc, char *argv[]) {
 void parse_server_conf(char *config_file) {
     FILE *file;
     char line [100];
-
     file = fopen(config_file, "r");
     if (file == NULL) {
         perror("Error opening file");
@@ -268,21 +323,30 @@ void parse_server_conf(char *config_file) {
         char *key = strtok(line, "=");
         char *value = strtok(NULL, "=");
         remove_spaces(key);
-        remove_spaces(value);
         if (strcmp(key, "Name") == 0) {
+            remove_spaces(value);
             serv.name = strdup(value);
         }
         else if (strcmp(key, "MAC") == 0) {
+            remove_spaces(value);
             serv.mac = strdup(value);
         }
         else if (strcmp(key, "UDP-port") == 0) {
+            remove_spaces(value);
             serv.udp = strdup(value);
         }
         else if (strcmp(key, "TCP-port") == 0) {
+            remove_spaces(value);
             serv.tcp = strdup(value);
+        } else {
+            printf("%s: Error al llegir les dades del fitxer\n", get_datetime());
+            exit(0);
         }
     }
     fclose(file);
+    if (debug) {
+        printf("%s: DEBUG => Llegit paràmetres arxiu de configuració\n", get_datetime());
+    }
 }
 
 void parse_controllers(char *config_file) {
@@ -297,6 +361,10 @@ void parse_controllers(char *config_file) {
     while (fgets(line, sizeof(line), file) != NULL) {
         char *key = strtok(line, ",");
         char *value = strtok(NULL, ",");
+        if (value == NULL) {
+            printf("%s: Error al llegir les dades del fitxer\n", get_datetime());
+            exit(0);
+        }
         value[strlen(value) - 1] = 0;
         clients[client_num].name = strdup(key);
         clients[client_num].ip = "     ";
@@ -309,6 +377,10 @@ void parse_controllers(char *config_file) {
         client_num++;
     }
     fclose(file);
+    if (debug) {
+        printf("%s: DEBUG => Llegits %d equips autoritzats en el sistema\n", get_datetime(), client_num);
+        print_info();
+    }
 }
 
 void remove_spaces(char *str) {
@@ -329,8 +401,9 @@ void init_server() {
 
     pthread_create(&thread_id, NULL, start_udp, NULL);
     pthread_create(&thread_id2, NULL, start_tcp, NULL);
-
-    printf("YO LEO LA TERMINAL\n");
+    if (debug) {
+        printf("%s: DEBUG => Procés establert per gestionar la BBDD dels controladors\n", get_datetime());
+    }
     signal(SIGINT, handle_sigint);
     while(1) {
         if (fgets(buffer, 1024, stdin) != NULL) {
@@ -355,6 +428,10 @@ int init_udp_socket() {
 
     copied_udp = sock;
 
+    if (debug) {
+        printf("%s: DEBUG => Socket UDP actiu\n", get_datetime());
+    }
+
     return sock;
 }
 
@@ -371,11 +448,15 @@ int init_tcp_socket() {
 
     copied_tcp = sock;
 
+    if (debug) {
+        printf("%s: DEBUG => Socket UDP actiu\n", get_datetime());
+    }
+
     return sock;
 }
 
 void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
-    int i, j, pointer;
+    int i, pointer;
     char command[100];
     char controller[50];
     char device[50];
@@ -388,11 +469,7 @@ void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
     }
 
     if (strcmp(command, "list") == 0) {
-        printf("--NOM--- ------IP------- -----MAC---- --RNDM-- ----ESTAT--- --SITUACIÓ-- --ELEMENTS-------------------------------------------\n");
-        for (j = 0; j < client_num; j++) {
-            printf("%s      %s      %s      %s     %s      %s      %s\n", clients[j].name, clients[j].ip, clients[j].mac, clients[j].rndm, 
-            clients[j].state, clients[j].situation, clients[j].elements);
-        }
+        print_info();
     } else if (strcmp(command, "set") == 0) {
         sscanf(buffer, "%s %s %s %s", command, controller, device, value);
         printf("Controller: %s\nDevice: %s\nValue: %s\n", controller, device, value);
@@ -408,6 +485,8 @@ void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
         if (pointer >= 0 && check_device(pointer, device)) {
             printf("ESTAMOS INNNN___V2\n");
             send_get_data(pointer, device);
+        } else {
+            printf("Error en la comanda\n");
         }
     } else if (strcmp(command, "quit") == 0) {
         printf("AAAA\n");
@@ -422,12 +501,22 @@ void process_command(char buffer[], pthread_t thread1, pthread_t thread2) {
             perror("Error joining thread");
             exit(EXIT_FAILURE);
         }
+        printf("%s: Terminado\n", get_datetime());
         exit(0);
     }
 }
 
+void print_info () {
+    int j;
+    printf("--NOM--- ------IP------- -----MAC---- --RNDM-- ----ESTAT--- --SITUACIÓ-- --ELEMENTS-------------------------------------------\n");
+        for (j = 0; j < client_num; j++) {
+            printf("%-10s %-13s %-13s %-8s %-12s %-12s %s\n", clients[j].name, clients[j].ip, clients[j].mac, clients[j].rndm, 
+            clients[j].state, clients[j].situation, clients[j].elements);
+        }
+}
+
 void send_get_data(int pointer, char* device) {
-    int offset, tcp_socket, sock, n;
+    int offset, tcp_socket, sock, n, flag;
     char buffer[SIZE];
     unsigned char type = GET_DATA;
     struct sockaddr_in cliaddr;
@@ -436,6 +525,10 @@ void send_get_data(int pointer, char* device) {
     time_t rawtime;
     struct tm *timeinfo;
     char buffer_time[9], file_name[20], text[SIZE], buffer_date[11];
+    bool device_ok;
+    struct timeval timeout;
+    timeout.tv_sec = w;
+    timeout.tv_usec = 0;
 
     tcp_socket = atoi(clients[pointer].tcp_port);
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -457,28 +550,42 @@ void send_get_data(int pointer, char* device) {
     memcpy(buffer + offset, device, 8);
 
     write(sock, buffer, sizeof(buffer));
-
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     n = recv(sock, buffer, sizeof(buffer), 0);
-    packet = hextoASCII_tcp(buffer, n);
-
-    if (packet.type != DATA_ACK) {
+    if (n == -1) {
         disconnect_client(pointer);
-    }
+    } else {        
+        packet = hextoASCII_tcp(buffer, n);
 
-    sprintf(file_name, "%s-%s", clients[pointer].name, clients[pointer].situation);
-    file = fopen(file_name, "a");
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    snprintf(buffer_time, sizeof(buffer_time), "%02d:%02d:%02d", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-    snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
-    sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
-    fprintf(file, "%s", text);
-    fclose(file);
+        if (packet.type != DATA_ACK) {
+            disconnect_client(pointer);
+        }
+
+        flag = check_credentials(pointer, "SEND_HELLO", packet.mac, packet.rndm);
+        device_ok = check_device(pointer, packet.device);
+        if (flag == 0 && device_ok) {
+            sprintf(file_name, "%s-%s", clients[pointer].name, clients[pointer].situation);
+            file = fopen(file_name, "a");
+            time(&rawtime);
+            timeinfo = localtime(&rawtime);
+            snprintf(buffer_time, sizeof(buffer_time), "%02d:%02d:%02d", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+            snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
+            sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
+            fprintf(file, "%s", text);
+            fclose(file);
+        } else {
+            if (!device_ok) {
+                flag = 0;
+            }
+            send_data_rej(sock, pointer, packet.device, packet.value, flag);
+            disconnect_client(pointer);
+        }
+    }
     close(sock);
 }
 
 void send_set_data(int pointer, char* device, char* value) {
-    int offset, tcp_socket, sock, n;
+    int offset, tcp_socket, sock, n, flag;
     char buffer[SIZE];
     unsigned char type = SET_DATA;
     struct sockaddr_in cliaddr;
@@ -487,6 +594,10 @@ void send_set_data(int pointer, char* device, char* value) {
     time_t rawtime;
     struct tm *timeinfo;
     char buffer_time[9], file_name[20], text[SIZE], buffer_date[11];
+    bool device_ok;
+    struct timeval timeout;
+    timeout.tv_sec = w;
+    timeout.tv_usec = 0;
 
     tcp_socket = atoi(clients[pointer].tcp_port);
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -510,23 +621,37 @@ void send_set_data(int pointer, char* device, char* value) {
     memcpy(buffer + offset, value, 7);
 
     write(sock, buffer, sizeof(buffer));
-
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     n = recv(sock, buffer, sizeof(buffer), 0);
-    packet = hextoASCII_tcp(buffer, n);
-
-    if (packet.type != DATA_ACK) {
+    if (n == -1) {
         disconnect_client(pointer);
-    }
+    } else {        
+        packet = hextoASCII_tcp(buffer, n);
 
-    sprintf(file_name, "%s-%s", clients[pointer].name, clients[pointer].situation);
-    file = fopen(file_name, "a");
-    time(&rawtime);
-    timeinfo = localtime(&rawtime);
-    snprintf(buffer_time, sizeof(buffer_time), "%02d:%02d:%02d", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-    snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
-    sprintf(text, "%s,%s;SET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
-    fprintf(file, "%s", text);
-    fclose(file);
+        if (packet.type != DATA_ACK) {
+            disconnect_client(pointer);
+        }
+
+        flag = check_credentials(pointer, "SEND_HELLO", packet.mac, packet.rndm);
+        device_ok = check_device(pointer, packet.device);
+        if (flag == 0 && device_ok) {
+            sprintf(file_name, "%s-%s", clients[pointer].name, clients[pointer].situation);
+            file = fopen(file_name, "a");
+            time(&rawtime);
+            timeinfo = localtime(&rawtime);
+            snprintf(buffer_time, sizeof(buffer_time), "%02d:%02d:%02d", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+            snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
+            sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
+            fprintf(file, "%s", text);
+            fclose(file);
+        } else {
+            if (!device_ok) {
+                flag = 0;
+            }
+            send_data_rej(sock, pointer, packet.device, packet.value, flag);
+            disconnect_client(pointer);
+        }
+    }
     close(sock);
 }
 
@@ -576,9 +701,12 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     int flag;
 
     sprintf(ip, "%s", inet_ntoa(cliaddr.sin_addr));
-    printf("IP: %s\n", ip);
 
     packet = hextoASCII_udp(buffer, n);
+    if (debug) {
+        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n", 
+                    get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.info);
+    }
     mac_ok = check_mac(packet);
     rndm_ok = (strcmp(packet.rndm, "00000000") == 0);
     if (packet.type == SUBS_REQ) {
@@ -698,11 +826,9 @@ void parse_data(char* info, char* mac) {
 
     token = strtok(info, ",");
     clients[pointer].tcp_port = strdup(token);
-    printf("PUERTO: %s\n", clients[pointer].tcp_port);
 
     token = strtok(NULL, ",");
     clients[pointer].elements = strdup(token);
-    printf("Elementos: %s\n", clients[pointer].elements);
 }
 
 void save_client_data(Udp_packet packet, char* ip) {
@@ -758,7 +884,10 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     offset += 80;
     
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
-    
+    if (debug) {
+        printf("%s: DEBUG => Enviat: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), offset, parse_type(type), serv.mac, rndm, port);
+    }
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     len = sizeof(addr_cli);
 	memset(&addr_server,0, sizeof(struct sockaddr_in));
@@ -772,23 +901,26 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     n = recvfrom(sock, (char *)buffer, 1024,  
                 0, ( struct sockaddr *) &addr_cli, 
                 &len); 
-    /*Save random number + change state*/
+    
     packet = hextoASCII_udp(buffer, sizeof(buffer));
+    if (debug) {
+        printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s\n",
+                get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.info);
+    }
     rndm_ok = (strcmp(packet.rndm, rndm) == 0);
-
     if (n > 0 && rndm_ok) {
         for (i = 0; i < client_num; i++) {
             if (strcmp(clients[i].name, controller) == 0) {
                 clients[i].rndm = strdup(rndm);
                 clients[i].state = "WAIT_INFO";
+                printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
+                        , get_datetime(), clients[i].name, clients[i].state);
                 break;
             }
         }
     } 
     mac_ok = (strcmp(clients[i].mac, packet.mac) == 0);
 
-    printf("AAAAAAA: %s vs %s  %d\n",clients[i].mac, packet.mac, rndm_ok);
-    printf("LO DEMAS: || %s ||%s ||%s ||%s ||%s ||%d\n",packet.controller,packet.info, packet.mac, packet.rndm, packet.situation, packet.type);
     if (strlen(packet.info) != 0 && rndm_ok && mac_ok) {
         send_info_ack(sock, sockfd, addr_cli, controller, i);
     } else {
@@ -822,6 +954,8 @@ void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *con
     sendto(sockfd, buffer, sizeof(buffer) + 1, 0, (struct sockaddr*)&addr_cli,sizeof(struct sockaddr_in));
 
     clients[pointer].state = "SUBSCRIBED";
+    printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
+                        , get_datetime(), clients[pointer].name, clients[pointer].state);
     /*per veure si el primer hello es enviat*/
     prev_check = clients[pointer].check_pack;
     sleep(v * 2);
@@ -857,6 +991,7 @@ void *start_udp() {
     struct sockaddr_in cliaddr;
     socklen_t len;
     ThreadArgs *args = malloc(sizeof *args);
+    Udp_packet packet;
 
     udp_sock = init_udp_socket();
     args->udp_port = udp_sock;
@@ -871,7 +1006,9 @@ void *start_udp() {
         args->cliaddr = cliaddr;
         args->n = n;
         args->buffer = buffer;
-        hextoASCII_udp(buffer, n);
+        if (debug) {
+            printf("%s: DEBUG => Rebut paquet UDP, creat procés per atendre'l\n", get_datetime());
+        }
         pthread_create(&thread_id, NULL, treat_udp, (void*)args);
     }
 }
@@ -889,10 +1026,16 @@ void* treat_udp(void* args) {
 
     if (buffer[0] == HELLO) {
         packet = hextoASCII_udp(buffer, sizeof(buffer));
+        if (debug) {
+            printf("%s: DEBUG => Rebut paquet HELLO del controlador: %s [%s]\n", 
+                    get_datetime(), packet.controller, packet.mac);
+        }
         for (pointer = 0; pointer < client_num; pointer++) {
             if (strcmp(clients[pointer].name, packet.controller) == 0) {
                 if (strcmp(clients[pointer].state, "SUBSCRIBED") == 0) {
                     clients[pointer].state = "SEND_HELLO";
+                    printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
+                        , get_datetime(), clients[pointer].name, clients[pointer].state);
                 }
                 break;
             }
@@ -911,7 +1054,6 @@ void* treat_udp(void* args) {
             send_hello_rej(udp_sock, cliaddr, pointer);
         }
     } else {
-        printf("Tratamiento nuevo cliente pipipipi \n");
         recieve_info(udp_sock,buffer, n, cliaddr);
     }
     return NULL;
@@ -961,7 +1103,6 @@ void *start_tcp() {
 
     listen(tcp_sock, 5);
 
-    printf("EN ELLO JEFE \n");
     signal(SIGUSR2, handle_sigusr2);
     while(1) {
         newsock = accept(tcp_sock,(struct sockaddr*)&cliaddr,&len);
@@ -1165,7 +1306,7 @@ int check_credentials (int pointer, char* state, char* mac, char* rndm) {
     rndm_ok = (strcmp(clients[pointer].rndm, rndm) == 0);
     mac_ok = (strcmp(clients[pointer].mac, mac) == 0);
     if (state_ok && rndm_ok && mac_ok) {
-                return 0;
+        return 0;
     }
 
     if (!mac_ok) {
