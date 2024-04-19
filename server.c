@@ -700,7 +700,7 @@ void send_set_data(int pointer, char* device, char* value) {
             timeinfo = localtime(&rawtime);
             snprintf(buffer_time, sizeof(buffer_time), "%02d:%02d:%02d", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
             snprintf(buffer_date, sizeof(buffer_date), "%02d-%02d-%04d", timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
-            sprintf(text, "%s,%s;GET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
+            sprintf(text, "%s,%s;SET_DATA;%s;%s\n",buffer_date ,buffer_time, packet.device, packet.value);
             fprintf(file, "%s", text);
             if (debug) {
                 printf("%s: DEBUG => Dades del controlador: %s [%s], element: %s emmagatzemades correctament\n",
