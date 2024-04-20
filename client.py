@@ -659,7 +659,6 @@ def subscribe_process():
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Inici bucle de servei equip: {client_config['Name']}")
     while True:
         if next_state == DISCONNECTED:
-            no_response = 0
             sock_udp.close()
             setup_udp()
             print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador en l'estat: DISCONNECTED, procés de "
@@ -712,6 +711,7 @@ def subscribe_process():
             server_data['TCP-port'] = info_ack_pdu[23:29].decode().strip('\x00')
             if check_server_data(info_ack_pdu, serv):
                 next_state = SUBSCRIBED
+                sock_udp2.close()
                 if debug:
                     print(f"{time.strftime('%H:%M:%S')}: DEBUG => Acceptada la subscripció del controlador en el "
                           f"servidor")
@@ -737,6 +737,7 @@ def subscribe_process():
                     if get_command_name(buffer[0]) == "HELLO_REJ" and debug:
                         print(f"{time.strftime('%H:%M:%S')}: DEBUG => Rebut paquet de rebuig de HELLO")
                     next_state = NOT_SUBSCRIBED
+                    time.sleep(u)
             except socket.timeout:
                 print(f"{time.strftime('%H:%M:%S')}: MSG. => Finalitzat el temporitzador per "
                       f"la confirmació del primer HELLO (4 seg.)")
@@ -762,6 +763,7 @@ def subscribe_process():
             if s == no_response or flag == -1:
                 os.kill(pid, signal.SIGUSR1)
                 next_state = DISCONNECTED
+                no_response = 0
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: DESCONNECTED (Sense "
                       f"resposta a {s} HELLO'S)")
 
