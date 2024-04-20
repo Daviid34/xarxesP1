@@ -378,7 +378,7 @@ def check_server_data(pdu, serv):
 
 
 def wait_ack_subs_state():
-    global next_state, sock_udp
+    global next_state, sock_udp, sock_udp2
     t = 1
     n = 7
     p = 3
@@ -411,22 +411,22 @@ def wait_ack_subs_state():
 
 
 def subs_ack_treatment(buffer):
-    global tries
+    global tries, sock_udp2
     type_package = buffer[0]
     mac_server = buffer[1:14]
     random_num = buffer[14:23]
     index = buffer[23:].find(b'\x00')
     new_port = buffer[23:(24 + index)]
     data_index = buffer[29:].find(b'\x00')
-    data = buffer[29:(30 + index)]
-    sock_udp.settimeout(None)
+    data = buffer[29:(30 + data_index)]
+    sock_udp2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if type_package == SUBS_ACK:
         server_data['MAC'] = mac_server.decode()
         server_data['random'] = random_num.decode()
         data = client_config['Local-TCP'] + ',' + client_config['Elements']
         packet = struct.pack('1B13s9s80s', SUBS_INFO, client_config['MAC'].encode(), random_num,
                              data.encode())
-        sock_udp.sendto(packet, (client_config['Server'], int(new_port.decode().strip('\x00'))))
+        sock_udp2.sendto(packet, (client_config['Server'], int(new_port.decode().strip('\x00'))))
         if debug:
             debug_package(packet, 0)
         return WAIT_ACK_INFO
@@ -501,7 +501,7 @@ def debug_package(buffer, flag):
 
 
 def subscribe_process():
-    global sock_udp, next_state, tries, pid, no_response
+    global sock_udp, sock_udp2, next_state, tries, pid, no_response
     o = 3
     u = 2
     r = 2
@@ -559,7 +559,7 @@ def subscribe_process():
                 sock_udp.settimeout(None)
 
         elif next_state == WAIT_ACK_INFO:
-            info_ack_pdu, serv = sock_udp.recvfrom(1500)
+            info_ack_pdu, serv = sock_udp2.recvfrom(1500)
             if debug:
                 debug_package(info_ack_pdu, 1)
             server_data['TCP-port'] = info_ack_pdu[23:29].decode().strip('\x00')
@@ -640,7 +640,7 @@ def parse_arguments():
 
 
 if __name__ == "__main__":
-    global sock_udp, sock_tcp, sock_tcp2
+    global sock_udp, sock_tcp, sock_tcp2, sock_udp2
     parse_arguments()
     try:
         signal.signal(signal.SIGINT, sig_int)

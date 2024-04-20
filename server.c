@@ -1085,6 +1085,7 @@ void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *con
     }
 
     clients[pointer].state = "SUBSCRIBED";
+    close(sockfd);
     printf("\033[1m");
     printf("%s: MSG. => Controlador: %s, passa a l'estat: %s\n"
                         , get_datetime(), clients[pointer].name, clients[pointer].state);
