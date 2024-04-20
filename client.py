@@ -265,7 +265,7 @@ def create_data_nack(device, value):
 
 
 """
-Tracta l'introducció de la comanda send per la terminal
+Tracta la introducció de la comanda send per la terminal
 """
 
 
