@@ -48,6 +48,10 @@ pid = 0
 
 debug = False
 
+"""
+Tractament del senyal SIGINT
+"""
+
 
 def sig_int(sig, frame):
     global sock_udp, sock_tcp, sock_tcp2
@@ -63,11 +67,21 @@ def sig_int(sig, frame):
         exit(0)
 
 
+"""
+Tractament del senyal SIGUSR1
+"""
+
+
 def sig_usr1(sig, frame):
     global sock_tcp, sock_tcp2
     _ = sig, frame
     close_tcp()
     exit(0)
+
+
+"""
+Funció que tanca els sockets TCP que estiguin oberts quan es tanca el client de forma forçosa
+"""
 
 
 def close_tcp():
@@ -82,6 +96,11 @@ def close_tcp():
             print(f"{time.strftime('%H:%M:%S')}: DEBUG  => Tancat socket TCP per la comunicació amb el servidor")
 
 
+"""
+Tractament del senyal SIGUSR2
+"""
+
+
 def sig_usr2(sig, frame):
     global tries
     _ = sig, frame
@@ -91,12 +110,22 @@ def sig_usr2(sig, frame):
     new_sub_process()
 
 
+"""
+Inicialitza i vincula el socket TCP 
+"""
+
+
 def setup_tcp():
     global sock_tcp
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock_tcp.bind((client_config['Server'], int(client_config['Local-TCP'])))
     sock_tcp.listen(1)
+
+
+"""
+Mostra per pantalla la recepció o enviament de paquets pel port TCP
+"""
 
 
 def debug_package2(buffer, flag):
@@ -115,6 +144,11 @@ def debug_package2(buffer, flag):
     else:
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Rebut: bytes={lon_bytes}, comanda={command}, mac={mac}, "
               f"rndm={random_num}, element={device}, valor={value}, info={info}")
+
+
+"""
+Llegeix la terminal i les connexions entrants pel port TCP obert per la comunicació amb el servidor
+"""
 
 
 def read_terminal():
@@ -154,6 +188,11 @@ def read_terminal():
                     debug_package2(buffer, 1)
                 connection.settimeout(None)
                 server_request_treatment(buffer, connection, server)
+
+
+"""
+Tracta el paquet rebut del servidor pel port TCP
+"""
 
 
 def server_request_treatment(buffer, connection, serv):
@@ -199,6 +238,11 @@ def server_request_treatment(buffer, connection, serv):
         connection.close()
 
 
+"""
+Crea el paquet del tipus DATA_REJ
+"""
+
+
 def create_data_rej(device, value):
     info = "Discrepancia amb la identificació del servidor"
     data_rej = struct.pack('1B13s9s8s7s80s', DATA_REJ, client_config['MAC'].encode(),
@@ -207,12 +251,22 @@ def create_data_rej(device, value):
     return data_rej
 
 
+"""
+Crea el paquet del tipus DATA_NACK
+"""
+
+
 def create_data_nack(device, value):
     info = "Discrepancia amb la identificació del dispositiu"
     data_nack = struct.pack('1B13s9s8s7s80s', DATA_NACK, client_config['MAC'].encode(),
                             server_data['random'].encode(), device.encode(), value.encode(),
                             info.encode())
     return data_nack
+
+
+"""
+Tracta l'introducció de la comanda send per la terminal
+"""
 
 
 def send_command(command):
@@ -241,6 +295,11 @@ def send_command(command):
         sock_tcp2.close()
 
 
+"""
+Tracta l'introducció de la comanda set per la terminal
+"""
+
+
 def set_command(command):
     if len(command) != 3:
         print(f"{time.strftime('%H:%M:%S')} MSG.  => Error de sintàxi. (set <element> <valor>)")
@@ -250,6 +309,12 @@ def set_command(command):
 
     else:
         elements_dict[command[1]] = command[2]
+
+
+"""
+Tracta la resposta al paquet SEND_DATA enviat al servidor i actua en conseqüència, tenint en compte que 
+si rebem DATA_NACK no cal programar el reenviament
+"""
 
 
 def data_treatment(buffer, serv):
@@ -267,16 +332,31 @@ def data_treatment(buffer, serv):
               f" (rebut element: {device}, valor: {value})")
 
 
+"""
+Comença un nou procés de subscripció
+"""
+
+
 def new_sub_process():
     global next_state
     next_state = NOT_SUBSCRIBED
     subscribe_process()
 
 
+"""
+Crea el socket del port TCP i el connecta a la IP del servidor
+"""
+
+
 def connect_tcp():
     global sock_tcp2
     sock_tcp2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp2.connect((client_config['Server'], int(server_data['TCP-port'])))
+
+
+"""
+Crea el paquet del tipus SEND_DATA
+"""
 
 
 def create_data_send(element):
@@ -286,6 +366,11 @@ def create_data_send(element):
                            server_data['random'].encode(), element.encode(), value.encode(),
                            info.encode())
     return data_pdu
+
+
+"""
+Crea el paquet del tipus DATA_ACK
+"""
 
 
 def create_data_ack(element, flag):
@@ -300,6 +385,11 @@ def create_data_ack(element, flag):
     return data_pdu
 
 
+"""
+Mostra per pantalla les credencials del controlador així com els dispositius associats amb el seu valor corresponent
+"""
+
+
 def print_stat():
     print("******************** DADES CONTROLADOR *********************")
     print(f" MAC: {client_config['MAC']}, Nom: {client_config['Name']}, Situació: {client_config['Situation']}\n")
@@ -311,10 +401,20 @@ def print_stat():
     print("***********************************************************")
 
 
+"""
+Estableix el valor inicial als elements del controlador, en aquest cas aquest valor es NONE
+"""
+
+
 def setup_elements():
     elements = client_config['Elements'].split(';')
     for element in elements:
         elements_dict[element] = "NONE"
+
+
+"""
+Llegeix els paràmetres de l'arxiu de configuració
+"""
 
 
 def process_config(file):
@@ -327,6 +427,12 @@ def process_config(file):
             print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Llegits paràmetres arxius de configuració")
     except FileNotFoundError:
         print(f"{time.strftime('%H:%M:%S')}: ERR0R.  => No es pot obrir l'arxiu de configuració {file}")
+
+
+"""
+Envia el paquet HELLO i temporitza la resposta del servidor al mateix temps que controla els paquets HELLO sense 
+resposta consecutius
+"""
 
 
 def send_hello(v):
@@ -355,12 +461,22 @@ def send_hello(v):
     return 0
 
 
+"""
+Crea el paquet del tipus HELLO_REJ
+"""
+
+
 def create_hello_rej():
     data = client_config['Name'] + "," + client_config['Situation']
     hello_rej_pdu = struct.pack('1B13s9s80s', HELLO_REJ, client_config['MAC'].encode(),
                                 server_data['random'].encode(),
                                 data.encode())
     return hello_rej_pdu
+
+
+"""
+Comprova que la mac, el nombre aleatori i la IP del paquet rebut del servidor siguin correctes
+"""
 
 
 def check_server_data(pdu, serv):
@@ -375,6 +491,12 @@ def check_server_data(pdu, serv):
         print(f"{time.strftime('%H:%M:%S')}: ALERT  => Error en les dades d'identificació del servidor "
               f"(rebut ip: {serv[0]}, mac: {mac})")
     return False
+
+
+"""
+Controla els temporitzadors dels paquets SUBS_REQ enviats, el nombre d'intents del client en subscriure's
+i les respostes a aquests paquets via la funció subs_ack_treatment
+"""
 
 
 def wait_ack_subs_state():
@@ -410,6 +532,11 @@ def wait_ack_subs_state():
     return NOT_SUBSCRIBED
 
 
+"""
+Comprova la resposta rebuda als paquets SUBS_REQ i actua en conseqüència
+"""
+
+
 def subs_ack_treatment(buffer):
     global tries, sock_udp2
     type_package = buffer[0]
@@ -439,11 +566,21 @@ def subs_ack_treatment(buffer):
         return NOT_SUBSCRIBED
 
 
+"""
+Crea el paquet del tipus HELLO
+"""
+
+
 def create_hello():
     data = client_config['Name'] + "," + client_config['Situation']
     hello_pdu = struct.pack('1B13s9s80s', HELLO, client_config['MAC'].encode(), server_data['random'].encode(),
                             data.encode())
     return hello_pdu
+
+
+"""
+Crea el paquet del tipus SUBS_REQ
+"""
 
 
 def create_subs_req():
@@ -485,6 +622,11 @@ def get_command_name(command):
         return "DATA_REJ"
 
 
+"""
+Construeix el missatge de debug pels paquets enviats i rebuts, depenent del valor de flag
+"""
+
+
 def debug_package(buffer, flag):
     lon_bytes = len(buffer)
     command = get_command_name(buffer[0])
@@ -498,6 +640,11 @@ def debug_package(buffer, flag):
     else:
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Rebut: bytes={lon_bytes}, comanda={command}, mac={mac}, "
               f"rndm={random_num}, dades={value}")
+
+
+"""
+Administra l'estat del client durant el procés de subscripció i actua en conseqüència
+"""
 
 
 def subscribe_process():
@@ -619,9 +766,19 @@ def subscribe_process():
                       f"resposta a {s} HELLO'S)")
 
 
+"""
+Inicialitza el socket UDP
+"""
+
+
 def setup_udp():
     global sock_udp
     sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+"""
+Interpreta els arguments passats a l'executar el client
+"""
 
 
 def parse_arguments():
@@ -639,6 +796,9 @@ def parse_arguments():
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Llegits paràmetres de línia de comandes")
 
 
+"""
+Inicialitza el procés de subscripció, el port UDP per aquest i les funcions per captar els senyals
+"""
 if __name__ == "__main__":
     global sock_udp, sock_tcp, sock_tcp2, sock_udp2
     parse_arguments()
