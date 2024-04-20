@@ -432,10 +432,10 @@ def subs_ack_treatment(buffer):
         return WAIT_ACK_INFO
     elif type_package == SUBS_NACK:
         tries = -1
-        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data}")
+        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data.decode()}")
         return NOT_SUBSCRIBED
     elif type_package == SUBS_REJ:
-        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data}")
+        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data.decode()}")
         return NOT_SUBSCRIBED
 
 
