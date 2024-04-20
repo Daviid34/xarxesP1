@@ -790,7 +790,6 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     mac_ok = check_mac(packet);
     rndm_ok = (strcmp(packet.rndm, "00000000") == 0);
     if (packet.type == SUBS_REQ) {
-
         if (mac_ok && rndm_ok) {
             save_client_data(packet, ip);
             send_subs_ack(sockfd, cliaddr, packet.controller);
@@ -838,7 +837,7 @@ void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet
 
     if (flag == 0) {
         printf("%s: INFO  => Rebutjat paquet SUBS_REQ. Controlador: %s [%s] (error identificació)\n", get_datetime(), packet.controller, packet.mac);
-        text = "Nom incorrecte";
+        text = "Controlador no autoritzat";
     } else if (flag == 1) {
         printf("%s: INFO => Petició de subscripció errònia. Controlador: mac=%s no autoritzat\n", get_datetime(), packet.mac);
         text = "MAC incorrecta";
@@ -1031,7 +1030,9 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     if (n == -1) {
         printf("%s: WARN. => Finalització del procés de subscripció en no rebre el paquet SUBS_INFO\n", get_datetime());
         disconnect_client(i);
-        printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n", get_datetime());
+        if (debug) {
+            printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n", get_datetime());
+        }
     } else {
         packet = hextoASCII_udp(buffer, sizeof(buffer));
         if (debug) {
@@ -1177,6 +1178,10 @@ void* treat_udp(void* args) {
     int n = threadArgs->n;
     bool data_sent_ok;
 
+    if (buffer[0] == HELLO_REJ) {
+        pthread_exit(NULL);
+    }
+
     if (buffer[0] == HELLO) {
         packet = hextoASCII_udp(buffer, sizeof(buffer));
         if (debug) {
@@ -1197,6 +1202,7 @@ void* treat_udp(void* args) {
                 break;
             }
         }
+
         data_sent_ok = strlen(packet.situation) > 0 && strlen(packet.controller) > 0;
         if (check_credentials(pointer,"SEND_HELLO", packet.mac, packet.rndm) == 0 && data_sent_ok) {
             send_hello(udp_sock, cliaddr, pointer);
@@ -1214,7 +1220,9 @@ void* treat_udp(void* args) {
                     get_datetime(), clients[pointer].mac);
             }
             send_hello_rej(udp_sock, cliaddr, pointer);
-            disconnect_client(pointer);
+            if (strcmp(clients[pointer].state, "DISCONNECTED") != 0) {
+                disconnect_client(pointer);
+            }
         }
     } else {
         recieve_info(udp_sock,buffer, n, cliaddr);
