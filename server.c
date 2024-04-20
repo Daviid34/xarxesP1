@@ -219,6 +219,9 @@ int main(int argc, char *argv[]) {
             printf("%s: DEBUG => Llegits paràmetres linea de comandes\n", get_datetime());
             parse_server_conf("server.cfg");
             parse_controllers("controllers.dat");
+        } else {
+            parse_server_conf("server.cfg");
+            parse_controllers("controllers.dat");
         }
     } else if (argc == 3) {
         if (strcmp(argv[1], "-c") == 0) {
@@ -1206,7 +1209,7 @@ void* treat_udp(void* args) {
             }
         } else {
             if (debug) {
-                printf("%s: Rebut paquet: HELLO del controlador [%s] amb dades d'identificació incorrectes\n",
+                printf("%s: DEBUG => Rebut paquet: HELLO del controlador [%s] amb dades d'identificació incorrectes\n",
                     get_datetime(), clients[pointer].mac);
             }
             send_hello_rej(udp_sock, cliaddr, pointer);

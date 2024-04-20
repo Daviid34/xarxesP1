@@ -415,9 +415,10 @@ def subs_ack_treatment(buffer):
     type_package = buffer[0]
     mac_server = buffer[1:14]
     random_num = buffer[14:23]
-    new_port = buffer[23:29]
     index = buffer[23:].find(b'\x00')
-    data = buffer[23:(24 + index)].decode()
+    new_port = buffer[23:(24 + index)]
+    data_index = buffer[29:].find(b'\x00')
+    data = buffer[29:(30 + index)]
     sock_udp.settimeout(None)
     if type_package == SUBS_ACK:
         server_data['MAC'] = mac_server.decode()
