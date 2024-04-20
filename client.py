@@ -296,7 +296,7 @@ def send_command(command):
 
 
 """
-Tracta l'introducció de la comanda set per la terminal
+Tracta la introducció de la comanda set per la terminal
 """
 
 
@@ -402,7 +402,7 @@ def print_stat():
 
 
 """
-Estableix el valor inicial als elements del controlador, en aquest cas aquest valor es NONE
+Estableix el valor inicial als elements del controlador, en aquest cas aquest valor és NONE
 """
 
 
@@ -475,7 +475,7 @@ def create_hello_rej():
 
 
 """
-Comprova que la mac, el nombre aleatori i la IP del paquet rebut del servidor siguin correctes
+    Comprova que la mac, el nombre aleatori i la IP del paquet rebut del servidor siguin correctes
 """
 
 
