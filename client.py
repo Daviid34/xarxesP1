@@ -51,11 +51,12 @@ debug = False
 
 def sig_int(sig, frame):
     global sock_udp, sock_tcp, sock_tcp2
+    _ = sig, frame
     if pid == 0:
         sock_udp.close()
         if debug:
             print(f"{time.strftime('%H:%M:%S')}: DEBUG  => Tancat socket UDP per la comunicació amb el servidor")
-            print(f"{time.strftime('%H:%M:%S')}: DEBUG => Finalització per ^C")
+        print(f"{time.strftime('%H:%M:%S')}: MSG. => Finalització per ^C")
         exit(0)
     else:
         close_tcp()
@@ -64,6 +65,7 @@ def sig_int(sig, frame):
 
 def sig_usr1(sig, frame):
     global sock_tcp, sock_tcp2
+    _ = sig, frame
     close_tcp()
     exit(0)
 
@@ -82,6 +84,7 @@ def close_tcp():
 
 def sig_usr2(sig, frame):
     global tries
+    _ = sig, frame
     u = 2
     time.sleep(u)
     tries = 0
@@ -119,6 +122,7 @@ def read_terminal():
     w = 3
     inputs = [sys.stdin, sock_tcp]
     setup_elements()
+    print_stat()
     while True:
         readable, _, _ = select.select(inputs, [], [])
         for connection in readable:
@@ -160,18 +164,25 @@ def server_request_treatment(buffer, connection, serv):
         value = buffer[31:(31 + index)].decode()
         if check_server_data(buffer, serv):
             if device in elements_dict:
-                if type_request == SET_DATA:
+                if type_request == SET_DATA and device[-1] == 'I':
                     elements_dict[device] = value
                     data_ack = create_data_ack(device, 0)
                     connection.send(data_ack)
                     if debug:
                         debug_package2(data_ack, 0)
 
-                if type_request == GET_DATA:
+                elif type_request == GET_DATA:
                     data_ack = create_data_ack(device, 1)
                     connection.send(data_ack)
                     if debug:
                         debug_package2(data_ack, 0)
+                else:
+                    data_nack = create_data_nack(device, value)
+                    connection.send(data_nack)
+                    if debug:
+                        print(f"{time.strftime('%H:%M:%S')}: DEBUG => Error paquet rebut. Element: "
+                              f"{device} és sensor i no permet establir el seu valor")
+                        debug_package2(data_nack, 0)
             else:
                 data_nack = create_data_nack(device, value)
                 connection.send(data_nack)
@@ -183,7 +194,6 @@ def server_request_treatment(buffer, connection, serv):
             if debug:
                 debug_package2(data_rej, 0)
             os.kill(os.getppid(), signal.SIGUSR2)
-            os.wait()
             exit(0)
     finally:
         connection.close()
@@ -225,7 +235,9 @@ def send_command(command):
             serv = sock_tcp2.getpeername()
             data_treatment(server_answer, serv)  # Al ser tcp ja sabem quina es la ip del server
         except socket.timeout:
-            print("Here it would be the resend")
+            if debug:
+                print(f"{time.strftime('%H:%M:%S')} DEBUG  => No s'ha rebut resposta del servidor "
+                      f"per la comunicació TCP")
         sock_tcp2.close()
 
 
@@ -243,10 +255,16 @@ def set_command(command):
 def data_treatment(buffer, serv):
     global tries
     type_package = buffer[0]
+    device = buffer[23:31].decode()
+    index = buffer[31:].find(b'\x00')
+    value = buffer[31:(32 + index)].decode()
     if type_package == DATA_REJ or not check_server_data(buffer, serv):
         os.kill(os.getppid(), signal.SIGUSR2)
         sock_tcp2.close()
         exit(0)
+    if device not in elements_dict and debug:
+        print(f"{time.strftime('%H:%M:%S')} DEBUG => Error en les dades d'identificació del element del controlador"
+              f" (rebut element: {device}, valor: {value})")
 
 
 def new_sub_process():
@@ -284,12 +302,13 @@ def create_data_ack(element, flag):
 
 def print_stat():
     print("******************** DADES CONTROLADOR *********************")
-    print(f" MAC: {client_config['MAC']}, Nom: {client_config['Name']}, Situació: {client_config['Situation']}")
-    print(f"    Estat: SEND_HELLO")
+    print(f" MAC: {client_config['MAC']}, Nom: {client_config['Name']}, Situació: {client_config['Situation']}\n")
+    print(f"    Estat: SEND_HELLO\n")
     print(f"     Dispos.      valor")
     print("     -------      -----")
     for element, value in elements_dict.items():
         print(f"     {element}       {value}")
+    print("***********************************************************")
 
 
 def setup_elements():
@@ -317,15 +336,20 @@ def send_hello(v):
     sock_udp.sendto(hello_pdu, (client_config['Server'], int(client_config['Srv-UDP'])))
     if debug:
         debug_package(hello_pdu, 0)
-    sock_udp.settimeout(3)
+    sock_udp.settimeout(v)
     try:
         buffer, check_serv = sock_udp.recvfrom(1500)
         if debug:
             debug_package(hello_pdu, 1)
-        if not check_server_data(buffer, check_serv):
+        if not check_server_data(buffer, check_serv) or get_command_name(buffer[0]) == "HELLO_REJ":
             hello_rej_pdu = create_hello_rej()
             sock_udp.sendto(hello_rej_pdu, (client_config['Server'], int(client_config['Srv-UDP'])))
+            if debug:
+                if get_command_name(buffer[0]) == "HELLO_REJ":
+                    print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Rebut paquet de rebuig de HELLO")
+                debug_package(hello_rej_pdu, 0)
             return -1
+        no_response = 0
     except socket.timeout:
         no_response += 1
     return 0
@@ -344,6 +368,12 @@ def check_server_data(pdu, serv):
     rand_num = pdu[14:23].decode()
     if mac == server_data['MAC'] and rand_num == server_data['random'] and serv[0] == server_data['IP']:
         return True
+    if rand_num != server_data['random']:
+        print(f"{time.strftime('%H:%M:%S')}: ALERT  => Error en el valor del camp rndm "
+              f"(rebut: {rand_num}, esperat: {server_data['random']})")
+    else:
+        print(f"{time.strftime('%H:%M:%S')}: ALERT  => Error en les dades d'identificació del servidor "
+              f"(rebut ip: {serv[0]}, mac: {mac})")
     return False
 
 
@@ -386,6 +416,8 @@ def subs_ack_treatment(buffer):
     mac_server = buffer[1:14]
     random_num = buffer[14:23]
     new_port = buffer[23:29]
+    index = buffer[23:].find(b'\x00')
+    data = buffer[23:(24 + index)].decode()
     sock_udp.settimeout(None)
     if type_package == SUBS_ACK:
         server_data['MAC'] = mac_server.decode()
@@ -399,8 +431,10 @@ def subs_ack_treatment(buffer):
         return WAIT_ACK_INFO
     elif type_package == SUBS_NACK:
         tries = -1
+        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data}")
         return NOT_SUBSCRIBED
     elif type_package == SUBS_REJ:
+        print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data}")
         return NOT_SUBSCRIBED
 
 
@@ -489,6 +523,14 @@ def subscribe_process():
 
         elif next_state == NOT_SUBSCRIBED:
             tries += 1
+            if tries > o:
+                if debug:
+                    print(f"{time.strftime('%H:%M:%S')}: DEBUG => Tancat socket UDP per la comunicació amb el servidor")
+                print(f"{time.strftime('%H:%M:%S')}: "
+                      f"MSG.  => Superat el nombre de processos de subscripció ({tries - 1})")
+
+                sock_udp.close()
+                exit(0)
             print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador en l'estat: NOT_SUBSCRIBED, procés de "
                   f"subscripció: {tries}")
             subs_req_pdu = create_subs_req()
@@ -502,8 +544,8 @@ def subscribe_process():
             if tries > o:
                 if debug:
                     print(f"{time.strftime('%H:%M:%S')}: DEBUG => Tancat socket UDP per la comunicació amb el servidor")
-                print(
-                    f"{time.strftime('%H:%M:%S')}: MSG.  => Superat el nombre de processos de subscripció ( {tries - 1} )")
+                print(f"{time.strftime('%H:%M:%S')}: "
+                      f"MSG.  => Superat el nombre de processos de subscripció ({tries - 1})")
 
                 sock_udp.close()
                 exit(0)
@@ -542,9 +584,14 @@ def subscribe_process():
                 buffer, check_serv = sock_udp.recvfrom(1500)
                 if debug:
                     debug_package(buffer, 1)
-                if not check_server_data(buffer, check_serv) or check_serv[0] != server_data['IP'] or get_command_name(buffer[0]) == "HELLO_REJ":
+                if (not check_server_data(buffer, check_serv) or check_serv[0] != server_data['IP']
+                        or get_command_name(buffer[0]) == "HELLO_REJ"):
+                    if get_command_name(buffer[0]) == "HELLO_REJ" and debug:
+                        print(f"{time.strftime('%H:%M:%S')}: DEBUG => Rebut paquet de rebuig de HELLO")
                     next_state = NOT_SUBSCRIBED
             except socket.timeout:
+                print(f"{time.strftime('%H:%M:%S')}: MSG. => Finalitzat el temporitzador per "
+                      f"la confirmació del primer HELLO (4 seg.)")
                 next_state = NOT_SUBSCRIBED
             sock_udp.settimeout(None)
 
@@ -563,12 +610,12 @@ def subscribe_process():
                 next_state = SEND_HELLO
 
         elif next_state == SEND_HELLO:
-            send_hello(v)
-            if s == no_response:
+            flag = send_hello(v)
+            if s == no_response or flag == -1:
                 os.kill(pid, signal.SIGUSR1)
                 next_state = DISCONNECTED
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: DESCONNECTED (Sense "
-                      f"resposta a {s} ALIVES)")
+                      f"resposta a {s} HELLO'S)")
 
 
 def setup_udp():
