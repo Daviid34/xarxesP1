@@ -151,7 +151,7 @@ Llegeix la terminal i les connexions entrants pel port TCP obert per la comunica
 """
 
 
-def read_terminal():
+def periodic_comunication():
     global sock_tcp
     w = 3
     inputs = [sys.stdin, sock_tcp]
@@ -499,7 +499,7 @@ i les respostes a aquests paquets via la funció subs_ack_treatment
 """
 
 
-def wait_ack_subs_state():
+def time_out_subscribe():
     global next_state, sock_udp, sock_udp2
     t = 1
     n = 7
@@ -696,7 +696,7 @@ def subscribe_process():
 
                 sock_udp.close()
                 exit(0)
-            next_state = wait_ack_subs_state()
+            next_state = time_out_subscribe()
             if next_state == NOT_SUBSCRIBED:
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: NOT_SUBSCRIBED")
                 time.sleep(u)
@@ -754,7 +754,7 @@ def subscribe_process():
                 if debug:
                     print(f"{time.strftime('%H:%M:%S')}: DEBUG  => Procés creat per enviament de HELLO")
                 if pid == 0:
-                    read_terminal()
+                    periodic_comunication()
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: SEND_HELLO")
                 next_state = SEND_HELLO
 
