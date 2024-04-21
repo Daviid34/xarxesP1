@@ -58,6 +58,7 @@ typedef struct {
     char *elements;
     char *tcp_port;
     int check_pack;
+    int sub_try_count;
 } Client;
 
 typedef struct {
@@ -109,7 +110,7 @@ Tcp_packet hextoASCII_tcp(char* hexArray, size_t size);
 void save_client_data(Udp_packet packet, char* ip);
 bool check_mac(Udp_packet packet);
 void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char *controller);
-void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet);
+void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet, int pointer);
 void send_subs_nack(int sockfd, struct sockaddr_in addr_cli);
 void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *controller, int pointer);
 void send_hello(int sockfd, struct sockaddr_in addr_cli, int pointer);
@@ -392,6 +393,7 @@ void parse_controllers(char *config_file) {
         clients[client_num].situation = "";
         clients[client_num].elements = "";
         clients[client_num].check_pack = 0;
+        clients[client_num].sub_try_count = 0;
         client_num++;
     }
     fclose(file);
@@ -602,6 +604,7 @@ void send_get_data(int pointer, char* device) {
         }
         if (packet.type != DATA_ACK) {
             disconnect_client(pointer);
+            clients[pointer].sub_try_count++;
         }
         flag = check_credentials(pointer, "SEND_HELLO", packet.mac, packet.rndm);
         device_ok = check_device(pointer, packet.device);
@@ -625,6 +628,7 @@ void send_get_data(int pointer, char* device) {
             } else {
                 send_data_rej(sock, pointer, packet.device, packet.value, flag);
                 disconnect_client(pointer);
+                clients[pointer].sub_try_count++;
             }
         }
     }
@@ -692,6 +696,7 @@ void send_set_data(int pointer, char* device, char* value) {
         }
         if (packet.type != DATA_ACK) {
             disconnect_client(pointer);
+            clients[pointer].sub_try_count++;
         }
 
         flag = check_credentials(pointer, "SEND_HELLO", packet.mac, packet.rndm);
@@ -716,6 +721,7 @@ void send_set_data(int pointer, char* device, char* value) {
             } else {
                 send_data_rej(sock, pointer, packet.device, packet.value, flag);
                 disconnect_client(pointer);
+                clients[pointer].sub_try_count++;
             }
         }
     }
@@ -778,7 +784,7 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     char ip[1024];
     Udp_packet packet;
     bool mac_ok, rndm_ok;
-    int flag;
+    int flag, i;
 
     sprintf(ip, "%s", inet_ntoa(cliaddr.sin_addr));
 
@@ -786,6 +792,20 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
     if (debug) {
         printf("%s: DEBUG => Rebut: bytes=%d, comanda=%s, mac=%s, rndm=%s, dades=%s,%s\n", 
                     get_datetime(), n, parse_type(packet.type), packet.mac, packet.rndm, packet.controller, packet.situation);
+    }
+    for (i = 0; i < client_num; i++) {
+        if (strcmp(packet.mac, clients[i].mac) == 0) {
+            if (strcmp(clients[i].state, "DISCONNECTED") != 0) {
+                if (debug) {
+                    printf("%s: DEBUG => Rebut paquet: %s en estat %s. Controlador [%s] passa a estat DISCONNECTED\n",
+                        get_datetime(), parse_type(packet.type), clients[i].state,  clients[i].mac);
+                }
+                send_subs_rej(sockfd, cliaddr, 4, packet, i);
+                disconnect_client(i);
+                clients[i].sub_try_count++;
+                pthread_exit(NULL);
+            }
+        }
     }
     mac_ok = check_mac(packet);
     rndm_ok = (strcmp(packet.rndm, "00000000") == 0);
@@ -801,7 +821,7 @@ void recieve_info(int sockfd, char* buffer, int n, struct sockaddr_in cliaddr) {
             } else if(!rndm_ok) {
                 flag = 2;
             }
-            send_subs_rej(sockfd, cliaddr, flag, packet);
+            send_subs_rej(sockfd, cliaddr, flag, packet, 4);
             /*No fa falta desconnectar doncs ja ho està en aquest estat*/
         }
     } else {
@@ -829,15 +849,15 @@ void send_subs_nack(int sockfd, struct sockaddr_in addr_cli) {
 /*
 Envia el paquet SUBS_REJ al port udp especificat (sockfd)
 */
-void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet) {
+void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet packet, int pointer) {
     char buffer[SIZE];
     char *text;
     unsigned char type = SUBS_REJ;
     int offset = 0;
 
     if (flag == 0) {
-        printf("%s: INFO  => Rebutjat paquet SUBS_REQ. Controlador: %s [%s] (error identificació)\n", get_datetime(), packet.controller, packet.mac);
-        text = "Controlador no autoritzat";
+        printf("%s: INFO  => Rebutjat paquet %s. Controlador: %s [%s] (error identificació)\n", get_datetime(), parse_type(packet.type), clients[pointer].name, clients[pointer].mac);
+        text = "Error identificació";
     } else if (flag == 1) {
         printf("%s: INFO => Petició de subscripció errònia. Controlador: mac=%s no autoritzat\n", get_datetime(), packet.mac);
         text = "MAC incorrecta";
@@ -845,8 +865,10 @@ void send_subs_rej(int sockfd, struct sockaddr_in addr_cli, int flag, Udp_packet
         printf("%s: INFO => Petició de subscripció errònia. Controlador: mac=%s rndm=%s (rndm incorrecte)\n", get_datetime(), packet.mac, packet.rndm);
         text = "Random number incorrecte";
     } else if (flag == 3) {
-        printf("%s: INFO  => Rebutjat paquet SUBS_REQ. Controlador: %s [%s] (error identificació)\n", get_datetime(), packet.controller, packet.mac);
+        printf("%s: INFO  => Rebutjat paquet %s. Controlador: %s [%s] (error identificació)\n", get_datetime(), parse_type(packet.type), clients[pointer].name, clients[pointer].mac);
         text = "El camp data estava buit";
+    } else {
+        text = "";
     }
 
     memcpy(buffer + offset, &type, 1);
@@ -1030,6 +1052,7 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
     if (n == -1) {
         printf("%s: WARN. => Finalització del procés de subscripció en no rebre el paquet SUBS_INFO\n", get_datetime());
         disconnect_client(i);
+        clients[i].sub_try_count++;
         if (debug) {
             printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n", get_datetime());
         }
@@ -1055,7 +1078,13 @@ void send_subs_ack(int sockfd, struct sockaddr_in addr_cli, char* controller_nam
             } else if (strlen(packet.info) == 0) {
                 flag = 3;
             }
-            send_subs_rej(sockfd, addr_cli, flag, packet);
+            send_subs_rej(sockfd, addr_cli, flag, packet, i);
+            disconnect_client(i);
+            clients[i].sub_try_count++;
+            if (debug) {
+                printf("%s: DEBUG => Finalitzat procés que atenia el paquet UDP\n",get_datetime());
+            }
+            pthread_exit(NULL);
         }
     }
 }
@@ -1067,7 +1096,7 @@ per part del controlador arriba.
 */
 void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *controller, int pointer) {
     char buffer[1024];
-    int offset = 0, prev_check;
+    int offset = 0, prev_check, prev_sub_count;
     unsigned char type = INFO_ACK;
     memcpy(buffer + offset, &type, 1);
     offset += 1;
@@ -1097,11 +1126,14 @@ void send_info_ack(int sockfd, int sock2, struct sockaddr_in addr_cli, char *con
     }
     /*Tractament per veure si el primer hello es enviat*/
     prev_check = clients[pointer].check_pack;
-    sleep(v * 2);
-    if (prev_check == clients[pointer].check_pack) {
-        printf("%s: MSG. => Controlador: %s [%s] no ha rebut el primer HELLO en %d segons\n",
-            get_datetime(), clients[pointer].name, clients[pointer].mac, v*2);
+    /*Per veure si al no arribar el primer HELLO s'ha començat un nou procés de subscripció, doncs llavors no cal desconectar*/
+    prev_sub_count = clients[pointer].sub_try_count;
+    sleep(v * x);
+    if (prev_check == clients[pointer].check_pack && clients[pointer].sub_try_count == prev_sub_count) {
+        printf("%s: MSG. => Controlador: %s [%s] no ha rebut %d HELLO's consecutius\n",
+            get_datetime(), clients[pointer].name, clients[pointer].mac, x);
         disconnect_client(pointer);
+        clients[pointer].sub_try_count++;
     }
 }
 
@@ -1213,6 +1245,7 @@ void* treat_udp(void* args) {
                 printf("%s: MSG. => Controlador %s [%s] no ha rebut 3 HELLO consecutius\n",
                     get_datetime(), clients[pointer].name, clients[pointer].mac);
                 disconnect_client(pointer);
+                clients[pointer].sub_try_count++;
             }
         } else {
             if (debug) {
@@ -1222,6 +1255,7 @@ void* treat_udp(void* args) {
             send_hello_rej(udp_sock, cliaddr, pointer);
             if (strcmp(clients[pointer].state, "DISCONNECTED") != 0) {
                 disconnect_client(pointer);
+                clients[pointer].sub_try_count++;
             }
         }
     } else {
