@@ -105,6 +105,7 @@ def sig_usr2(sig, frame):
     global tries
     _ = sig, frame
     u = 2
+    close_tcp()
     time.sleep(u)
     tries = 0
     new_sub_process()
@@ -136,8 +137,8 @@ def debug_package2(buffer, flag):
     device = buffer[23:31].decode().strip('\x00')
     index = buffer[31:38].find(b'\x00')
     value = buffer[31:(31 + index)].decode()
-    index2 = buffer[(31 + index):].find(b'\x00')
-    info = buffer[(31 + index):index2].decode()
+    index2 = buffer[38:].find(b'\x00')
+    info = buffer[38:(38 + index2)].decode()
     if flag == 0:
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Enviat: bytes={lon_bytes}, comanda={command}, mac={mac}, "
               f"rndm={random_num}, element={device}, valor={value}, info={info}")
@@ -327,6 +328,8 @@ def data_treatment(buffer, serv):
         os.kill(os.getppid(), signal.SIGUSR2)
         sock_tcp2.close()
         exit(0)
+
+    device = device.rstrip('\x00')
     if device not in elements_dict and debug:
         print(f"{time.strftime('%H:%M:%S')} DEBUG => Error en les dades d'identificació del element del controlador"
               f" (rebut element: {device}, valor: {value})")
@@ -544,8 +547,6 @@ def subs_ack_treatment(buffer):
     random_num = buffer[14:23]
     index = buffer[23:].find(b'\x00')
     new_port = buffer[23:(24 + index)]
-    data_index = buffer[29:].find(b'\x00')
-    data = buffer[29:(30 + data_index)]
     sock_udp2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if type_package == SUBS_ACK:
         server_data['MAC'] = mac_server.decode()
@@ -558,10 +559,14 @@ def subs_ack_treatment(buffer):
             debug_package(packet, 0)
         return WAIT_ACK_INFO
     elif type_package == SUBS_NACK:
-        tries = -1
+        data_index = buffer[23:].find(b'\x00')
+        data = buffer[23:(24 + data_index)]
+        tries -= 1
         print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data.decode()}")
         return NOT_SUBSCRIBED
     elif type_package == SUBS_REJ:
+        data_index = buffer[23:].find(b'\x00')
+        data = buffer[23:(24 + data_index)]
         print(f"{time.strftime('%H:%M:%S')}: INFO  => Descartat paquet de subscripció enviat, motiu: {data.decode()}")
         return NOT_SUBSCRIBED
 
@@ -655,8 +660,11 @@ def subscribe_process():
     v = 2
     s = 3
     no_response = 0
+    prev_try = 1
     if debug:
         print(f"{time.strftime('%H:%M:%S')}: DEBUG.  => Inici bucle de servei equip: {client_config['Name']}")
+        print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador en l'estat: NOT_SUBSCRIBED, procés de "
+              f"subscripció: {tries + 1}")
     while True:
         if next_state == DISCONNECTED:
             sock_udp.close()
@@ -678,8 +686,11 @@ def subscribe_process():
 
                 sock_udp.close()
                 exit(0)
-            print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador en l'estat: NOT_SUBSCRIBED, procés de "
+            if prev_try != tries:
+                print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador en l'estat: NOT_SUBSCRIBED, procés de "
                   f"subscripció: {tries}")
+                time.sleep(u)
+            prev_try = tries
             subs_req_pdu = create_subs_req()
             sock_udp.sendto(subs_req_pdu, (client_config['Server'], int(client_config['Srv-UDP'])))
             if debug:
@@ -699,7 +710,6 @@ def subscribe_process():
             next_state = time_out_subscribe()
             if next_state == NOT_SUBSCRIBED:
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: NOT_SUBSCRIBED")
-                time.sleep(u)
             elif next_state == WAIT_ACK_INFO:
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: WAIT_ACK_INFO")
                 sock_udp.settimeout(None)
@@ -721,13 +731,14 @@ def subscribe_process():
                 print(f"{time.strftime('%H:%M:%S')}: MSG.  => Controlador passa a l'estat: NOT_SUBSCRIBED")
 
         elif next_state == SUBSCRIBED:
+            if debug:
+                print(f"{time.strftime('%H:%M:%S')}: DEBUG => Establert temporitzador per enviament HELLO")
+            time.sleep(v)
             hello_pdu = create_hello()
             sock_udp.sendto(hello_pdu, (client_config['Server'], int(client_config['Srv-UDP'])))
             if debug:
                 debug_package(hello_pdu, 0)
             sock_udp.settimeout(r * v)
-            if debug:
-                print(f"{time.strftime('%H:%M:%S')}: DEBUG => Establert temporitzador per enviament HELLO")
             try:
                 buffer, check_serv = sock_udp.recvfrom(1500)
                 if debug:
